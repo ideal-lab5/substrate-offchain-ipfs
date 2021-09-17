@@ -33,7 +33,7 @@ sp-utils = { version = "4.0.0-dev", path = "../../primitives/utils" }
 threadpool = "1.7"
 
 [target.'cfg(not(target_os = "unknown"))'.dependencies]
-hyper = "0.14.11"
+hyper = "0.14.13"
 hyper-rustls = "0.22.1"
 
 [dev-dependencies]
