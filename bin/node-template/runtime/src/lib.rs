@@ -14,7 +14,7 @@ use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata, Encode, Bytes};
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
-	traits::{AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, Verify, SaturatedConversion },
+	traits::{AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, Verify, SaturatedConversion, OpaqueKeys, ConvertInto },
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult, MultiSignature,
 };
@@ -23,6 +23,7 @@ use sp_std::prelude::*;
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 use frame_system::EnsureRoot;
+use pallet_session::historical as pallet_session_historical;
 
 // A few exports that help ease life for downstream crates.
 pub use frame_support::{
@@ -41,6 +42,7 @@ use pallet_transaction_payment::CurrencyAdapter;
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
 pub use sp_runtime::{Perbill, Permill};
+
 
 /// Import the template pallet.
 pub use pallet_iris;
@@ -202,6 +204,33 @@ impl frame_system::Config for Runtime {
 impl pallet_randomness_collective_flip::Config for Runtime {}
 
 parameter_types! {
+	pub const Period: u32 = 5;
+	pub const Offset: u32 = 0;
+}
+
+impl pallet_session::Config for Runtime {
+	type SessionHandler = <opaque::SessionKeys as OpaqueKeys>::KeyTypeIdProviders;
+	// type ShouldEndSession = ValidatorSet;
+	// type SessionManager = ValidatorSet;
+	type SessionManager = pallet_session::historical::NoteHistoricalRoot<Self, Iris>;
+	type Event = Event;
+	type Keys = opaque::SessionKeys;
+	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
+	type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
+	// type ValidatorId = <Self as system::Trait>::AccountId;
+	// type ValidatorIdOf = validatorset::ValidatorOf<Self>;
+	type ValidatorId = u64;
+	type ValidatorIdOf = ConvertInto;
+	type DisabledValidatorsThreshold = ();
+}
+
+
+impl pallet_session::historical::Config for Runtime {
+	type FullIdentification = u128;
+	type FullIdentificationOf = pallet_iris::ExposureOf<Runtime>;
+}
+
+parameter_types! {
 	pub const MaxAuthorities: u32 = 32;
 }
 
@@ -215,7 +244,7 @@ impl pallet_grandpa::Config for Runtime {
 	type Event = Event;
 	type Call = Call;
 
-	type KeyOwnerProofSystem = ();
+	type KeyOwnerProofSystem = Historical;
 
 	type KeyOwnerProof =
 		<Self::KeyOwnerProofSystem as KeyOwnerProofSystem<(KeyTypeId, GrandpaId)>>::Proof;
@@ -312,6 +341,7 @@ impl pallet_iris::Config for Runtime {
 	type Call = Call;
 	type AuthorityId = pallet_iris::crypto::TestAuthId;
 	type Currency = Balances;
+	type SessionInterface = Self;
 }
 
 impl<LocalCall> frame_system::offchain::CreateSignedTransaction<LocalCall> for Runtime
@@ -388,6 +418,8 @@ construct_runtime!(
 		Iris: pallet_iris::{Pallet, Call, Storage, Event<T>},
 		// removed call to make extrinsics uncallable
 		Assets: pallet_assets::{Pallet, Storage, Event<T>},
+		Session: pallet_session::{Pallet, Storage, Event, Config<T>},
+		Historical: pallet_session_historical::{Pallet},
 	}
 );
 // Iris: pallet_iris::{Pallet, Call, Storage, Event<T>, ValidateUnsigned},

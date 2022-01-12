@@ -32,6 +32,7 @@ log = { version = "0.4.14", default-features = false }
 
 pallet-balances = { version = "4.0.0-dev", default-features = false, path = "../../../../frame/balances" }
 pallet-assets = { version = "4.0.0-dev", default-features = false, path = "../../../../frame/assets" }
+pallet-session = { version = "4.0.0-dev", default-features = false, features = ["historical"], path = "../../../../frame/session" }
 
 [features]
 default = ['std']
@@ -48,6 +49,7 @@ std = [
 	'log/std',
 	'pallet-assets/std',
 	'pallet-balances/std',
+	'pallet-session/std',
 ]
 
 runtime-benchmarks = ["frame-benchmarking"]
