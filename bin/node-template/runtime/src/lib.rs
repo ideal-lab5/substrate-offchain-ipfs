@@ -14,7 +14,17 @@ use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata, Encode, Bytes};
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
-	traits::{AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, Verify, SaturatedConversion, OpaqueKeys, ConvertInto },
+	traits::{
+		AccountIdLookup, 
+		BlakeTwo256, 
+		Block as BlockT, 
+		IdentifyAccount, 
+		NumberFor, 
+		Verify, 
+		SaturatedConversion, 
+		OpaqueKeys, 
+		ConvertInto,
+	 },
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult, MultiSignature,
 };
@@ -46,6 +56,7 @@ pub use sp_runtime::{Perbill, Permill};
 
 /// Import the template pallet.
 pub use pallet_iris;
+pub use pallet_iris_session;
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -204,30 +215,32 @@ impl frame_system::Config for Runtime {
 impl pallet_randomness_collective_flip::Config for Runtime {}
 
 parameter_types! {
-	pub const Period: u32 = 5;
+	// TODO: Increase this when done testing
+	pub const MinAuthorities: u32 = 1;
+}
+
+impl pallet_iris_session::Config for Runtime {
+	type Event = Event;
+	type AddRemoveOrigin = EnsureRoot<AccountId>;
+	type MinAuthorities = MinAuthorities;
+}
+
+parameter_types! {
+	pub const Period: u32 = 2 * MINUTES;
 	pub const Offset: u32 = 0;
 }
 
 impl pallet_session::Config for Runtime {
-	type SessionHandler = <opaque::SessionKeys as OpaqueKeys>::KeyTypeIdProviders;
-	// type ShouldEndSession = ValidatorSet;
-	// type SessionManager = ValidatorSet;
-	type SessionManager = pallet_session::historical::NoteHistoricalRoot<Self, Iris>;
-	type Event = Event;
-	type Keys = opaque::SessionKeys;
-	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
+	type ValidatorId = <Self as frame_system::Config>::AccountId;
+	type ValidatorIdOf = pallet_iris_session::ValidatorOf<Self>;
 	type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
-	// type ValidatorId = <Self as system::Trait>::AccountId;
-	// type ValidatorIdOf = validatorset::ValidatorOf<Self>;
-	type ValidatorId = u64;
-	type ValidatorIdOf = ConvertInto;
+	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
+	type SessionManager = IrisSession;
+	type SessionHandler = <opaque::SessionKeys as OpaqueKeys>::KeyTypeIdProviders;
+	type Keys = opaque::SessionKeys;
+	type WeightInfo = ();
 	type DisabledValidatorsThreshold = ();
-}
-
-
-impl pallet_session::historical::Config for Runtime {
-	type FullIdentification = u128;
-	type FullIdentificationOf = pallet_iris::ExposureOf<Runtime>;
+	type Event = Event;
 }
 
 parameter_types! {
@@ -244,7 +257,7 @@ impl pallet_grandpa::Config for Runtime {
 	type Event = Event;
 	type Call = Call;
 
-	type KeyOwnerProofSystem = Historical;
+	type KeyOwnerProofSystem = ();
 
 	type KeyOwnerProof =
 		<Self::KeyOwnerProofSystem as KeyOwnerProofSystem<(KeyTypeId, GrandpaId)>>::Proof;
@@ -341,7 +354,6 @@ impl pallet_iris::Config for Runtime {
 	type Call = Call;
 	type AuthorityId = pallet_iris::crypto::TestAuthId;
 	type Currency = Balances;
-	type SessionInterface = Self;
 }
 
 impl<LocalCall> frame_system::offchain::CreateSignedTransaction<LocalCall> for Runtime
@@ -409,17 +421,18 @@ construct_runtime!(
 		System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
 		// RandomnessCollectiveFlip: pallet_randomness_collective_flip::{Pallet, Storage},
 		Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
-		Aura: pallet_aura::{Pallet, Config<T>},
-		Grandpa: pallet_grandpa::{Pallet, Call, Storage, Config, Event},
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
 		TransactionPayment: pallet_transaction_payment::{Pallet, Storage},
 		Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>},
 		// Include the custom logic from the pallet-template in the runtime.
+		IrisSession: pallet_iris_session::{Pallet, Call, Storage, Event<T>, Config<T>},
 		Iris: pallet_iris::{Pallet, Call, Storage, Event<T>},
-		// removed call to make extrinsics uncallable
-		Assets: pallet_assets::{Pallet, Storage, Event<T>},
 		Session: pallet_session::{Pallet, Storage, Event, Config<T>},
-		Historical: pallet_session_historical::{Pallet},
+		Assets: pallet_assets::{Pallet, Storage, Event<T>},
+		// removed call to make extrinsics uncallable
+		Aura: pallet_aura::{Pallet, Config<T>},
+		Grandpa: pallet_grandpa::{Pallet, Call, Storage, Config, Event},
+		// Historical: pallet_session_historical::{Pallet},
 	}
 );
 // Iris: pallet_iris::{Pallet, Call, Storage, Event<T>, ValidateUnsigned},

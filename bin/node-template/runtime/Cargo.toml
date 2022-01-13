@@ -24,6 +24,7 @@ pallet-sudo = { version = "4.0.0-dev", default-features = false, path = "../../.
 pallet-assets = { version = "4.0.0-dev", default-features = false, path = "../../../frame/assets" }
 pallet-session = { version = "4.0.0-dev", default-features = false, features = ["historical"], path = "../../../frame/session" }
 pallet-iris = { version = "3.0.0", default-features = false, path = "../pallets/template" }
+pallet-iris-session = { version = "3.0.0", default-features = false, path = "../pallets/iris-session" }
 
 
 frame-system = { version = "4.0.0-dev", default-features = false, path = "../../../frame/system" }
@@ -78,6 +79,7 @@ std = [
 	"pallet-transaction-payment/std",
 	"pallet-assets/std",
 	"pallet-session/std",
+	"pallet-iris-session/std",
 	"sp-api/std",
 	"sp-block-builder/std",
 	"sp-consensus-aura/std",
@@ -98,6 +100,7 @@ runtime-benchmarks = [
 	"hex-literal",
 	"pallet-balances/runtime-benchmarks",
 	"pallet-iris/runtime-benchmarks",
+	"pallet-iris-session/std",
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-assets/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",

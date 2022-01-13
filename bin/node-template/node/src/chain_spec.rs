@@ -1,6 +1,9 @@
-:use node_template_runtime::{
-	AccountId, AuraConfig, BalancesConfig, GenesisConfig, GrandpaConfig, Signature, SudoConfig,
+use node_template_runtime::{
+	AccountId, AuraConfig, BalancesConfig, 
+	GenesisConfig, GrandpaConfig, Signature, 
+	SudoConfig, SessionConfig, IrisSessionConfig,
 	SystemConfig, WASM_BINARY,
+	opaque::SessionKeys,
 };
 use sc_service::ChainType;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
@@ -13,6 +16,11 @@ use sp_runtime::traits::{IdentifyAccount, Verify};
 
 /// Specialized `ChainSpec`. This is a specialization of the general Substrate ChainSpec type.
 pub type ChainSpec = sc_service::GenericChainSpec<GenesisConfig>;
+
+
+fn session_keys(aura: AuraId, grandpa: GrandpaId) -> SessionKeys {
+	SessionKeys { aura, grandpa }
+}
 
 /// Generate a crypto pair from seed.
 pub fn get_from_seed<TPublic: Public>(seed: &str) -> <TPublic::Pair as Pair>::Public {
@@ -33,7 +41,11 @@ where
 
 /// Generate an Aura authority key.
 pub fn authority_keys_from_seed(s: &str) -> (AccountId, AuraId, GrandpaId) {
-	(get_account_id_from_seed::<sr25519::Public>(s), get_from_seed::<AuraId>(s), get_from_seed::<GrandpaId>(s))
+	(
+		get_account_id_from_seed::<sr25519::Public>(s), 
+		get_from_seed::<AuraId>(s), 
+		get_from_seed::<GrandpaId>(s)
+	)
 }
 
 pub fn development_config() -> Result<ChainSpec, String> {
@@ -49,7 +61,7 @@ pub fn development_config() -> Result<ChainSpec, String> {
 			testnet_genesis(
 				wasm_binary,
 				// Initial PoA authorities
-				vec![authority_keys_from_seed("Alice")],
+				vec![authority_keys_from_seed("Alice"), authority_keys_from_seed("Bob")],
 				// Sudo account
 				get_account_id_from_seed::<sr25519::Public>("Alice"),
 				// Pre-funded accounts
@@ -140,17 +152,22 @@ fn testnet_genesis(
 			// Configure endowed accounts with initial balance of 1 << 60.
 			balances: endowed_accounts.iter().cloned().map(|k| (k, 1 << 60)).collect(),
 		},
-		aura: AuraConfig {
-			authorities: initial_authorities.iter().map(|x| (x.0.clone())).collect(),
+		iris_session: IrisSessionConfig {
+			initial_validators: initial_authorities.iter().map(|x| x.0.clone()).collect::<Vec<_>>(),
 		},
-		grandpa: GrandpaConfig {
-			authorities: initial_authorities.iter().map(|x| (x.1.clone(), 1)).collect(),
-		},
-		session: Some(SessionConfig {
+		session: SessionConfig {
 			keys: initial_authorities.iter().map(|x| {
 				(x.0.clone(), x.0.clone(), session_keys(x.1.clone(), x.2.clone()))
 			}).collect::<Vec<_>>(),
-		}),
+		},
+		aura: AuraConfig {
+			// authorities: initial_authorities.iter().map(|x| (x.1.clone())).collect(),
+			authorities: vec![],
+		},
+		grandpa: GrandpaConfig {
+			// authorities: initial_authorities.iter().map(|x| (x.2.clone(), 1)).collect(),
+			authorities: vec![],
+		},
 		sudo: SudoConfig {
 			// Assign network admin rights.
 			key: root_key,

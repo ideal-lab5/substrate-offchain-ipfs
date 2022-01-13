@@ -5042,6 +5042,7 @@ dependencies = [
  "pallet-grandpa",
  "pallet-iris",
  "pallet-iris-rpc-runtime-api",
+ "pallet-iris-session",
  "pallet-randomness-collective-flip",
  "pallet-session",
  "pallet-sudo",
@@ -5894,6 +5895,27 @@ dependencies = [
  "sp-api",
  "sp-core",
  "sp-runtime",
+]
+
+[[package]]
+name = "pallet-iris-session"
+version = "3.0.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log 0.4.14",
+ "pallet-assets",
+ "pallet-balances",
+ "pallet-session",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-keystore",
+ "sp-runtime",
+ "sp-staking",
+ "sp-std",
 ]
 
 [[package]]
