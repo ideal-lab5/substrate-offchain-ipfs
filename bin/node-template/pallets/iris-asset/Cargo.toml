@@ -1,12 +1,12 @@
 [package]
 authors = ['Substrate DevHub <https://github.com/substrate-developer-hub>']
 edition = '2018'
-name = 'pallet-iris'
+name = 'pallet-iris-asset'
 version = "3.0.0"
 license = "Unlicense"
 homepage = "https://substrate.dev"
 repository = "https://github.com/substrate-developer-hub/substrate-node-template/"
-description = "FRAME pallet template for Iris."
+description = "FRAME pallet template for Iris Asset management."
 readme = "README.md"
 publish = false
 

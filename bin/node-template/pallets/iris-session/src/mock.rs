@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use super::*;
-use crate as validator_set;
+use crate as pallet_iris_session;
 use frame_support::{parameter_types, traits::GenesisBuild, BasicExternalities};
 use frame_system::EnsureRoot;
 use pallet_session::*;
@@ -63,7 +63,7 @@ frame_support::construct_runtime!(
 		UncheckedExtrinsic = UncheckedExtrinsic,
 	{
 		System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
-		ValidatorSet: validator_set::{Pallet, Call, Storage, Event<T>, Config<T>},
+		IrisSession: pallet_iris_session::{Pallet, Call, Storage, Event<T>, Config<T>},
 		Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>},
 	}
 );
@@ -133,7 +133,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 		frame_system::Pallet::<Test>::inc_providers(&4);
 		frame_system::Pallet::<Test>::inc_providers(&69);
 	});
-	validator_set::GenesisConfig::<Test> {
+	pallet_iris_session::GenesisConfig::<Test> {
 		initial_validators: keys.iter().map(|x| x.0).collect::<Vec<_>>(),
 	}
 	.assimilate_storage(&mut t)
@@ -181,7 +181,7 @@ parameter_types! {
 	pub const MinAuthorities: u32 = 2;
 }
 
-impl validator_set::Config for Test {
+impl pallet_iris_session::Config for Test {
 	type AddRemoveOrigin = EnsureRoot<Self::AccountId>;
 	type Event = Event;
 	type MinAuthorities = MinAuthorities;
@@ -189,10 +189,10 @@ impl validator_set::Config for Test {
 
 impl pallet_session::Config for Test {
 	type ValidatorId = <Self as frame_system::Config>::AccountId;
-	type ValidatorIdOf = validator_set::ValidatorOf<Self>;
+	type ValidatorIdOf = pallet_iris_session::ValidatorOf<Self>;
 	type ShouldEndSession = TestShouldEndSession;
 	type NextSessionRotation = ();
-	type SessionManager = ValidatorSet;
+	type SessionManager = IrisSession;
 	type SessionHandler = TestSessionHandler;
 	type Keys = MockSessionKeys;
 	type WeightInfo = ();

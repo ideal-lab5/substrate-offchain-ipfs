@@ -161,11 +161,9 @@ fn testnet_genesis(
 			}).collect::<Vec<_>>(),
 		},
 		aura: AuraConfig {
-			// authorities: initial_authorities.iter().map(|x| (x.1.clone())).collect(),
 			authorities: vec![],
 		},
 		grandpa: GrandpaConfig {
-			// authorities: initial_authorities.iter().map(|x| (x.2.clone(), 1)).collect(),
 			authorities: vec![],
 		},
 		sudo: SudoConfig {

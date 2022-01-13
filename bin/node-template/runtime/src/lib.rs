@@ -55,7 +55,7 @@ pub use sp_runtime::{Perbill, Permill};
 
 
 /// Import the template pallet.
-pub use pallet_iris;
+pub use pallet_iris_asset;
 pub use pallet_iris_session;
 
 /// An index to a block.
@@ -226,7 +226,7 @@ impl pallet_iris_session::Config for Runtime {
 }
 
 parameter_types! {
-	pub const Period: u32 = 2 * MINUTES;
+	pub const Period: u32 = 1 * MINUTES;
 	pub const Offset: u32 = 0;
 }
 
@@ -349,10 +349,10 @@ impl pallet_assets::Config for Runtime {
 pub type SignedPayload = generic::SignedPayload<Call, SignedExtra>;
 
 /// Configure the pallet-template in pallets/template.
-impl pallet_iris::Config for Runtime {
+impl pallet_iris_asset::Config for Runtime {
 	type Event = Event;
 	type Call = Call;
-	type AuthorityId = pallet_iris::crypto::TestAuthId;
+	type AuthorityId = pallet_iris_asset::crypto::TestAuthId;
 	type Currency = Balances;
 }
 
@@ -426,8 +426,8 @@ construct_runtime!(
 		Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>},
 		// Include the custom logic from the pallet-template in the runtime.
 		IrisSession: pallet_iris_session::{Pallet, Call, Storage, Event<T>, Config<T>},
-		Iris: pallet_iris::{Pallet, Call, Storage, Event<T>},
-		Session: pallet_session::{Pallet, Storage, Event, Config<T>},
+		Iris: pallet_iris_asset::{Pallet, Call, Storage, Event<T>},
+		Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>},
 		Assets: pallet_assets::{Pallet, Storage, Event<T>},
 		// removed call to make extrinsics uncallable
 		Aura: pallet_aura::{Pallet, Config<T>},
@@ -435,7 +435,6 @@ construct_runtime!(
 		// Historical: pallet_session_historical::{Pallet},
 	}
 );
-// Iris: pallet_iris::{Pallet, Call, Storage, Event<T>, ValidateUnsigned},
 
 /// The address format for describing accounts.
 pub type Address = sp_runtime::MultiAddress<AccountId, ()>;
@@ -659,7 +658,7 @@ impl_runtime_apis! {
 			add_benchmark!(params, batches, frame_system, SystemBench::<Runtime>);
 			add_benchmark!(params, batches, pallet_balances, Balances);
 			add_benchmark!(params, batches, pallet_timestamp, Timestamp);
-			add_benchmark!(params, batches, pallet_iris, Iris);
+			add_benchmark!(params, batches, pallet_iris_asset, Iris);
 
 			if batches.is_empty() { return Err("Benchmark not found for this pallet.".into()) }
 			Ok(batches)

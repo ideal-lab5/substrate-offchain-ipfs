@@ -72,7 +72,7 @@ pub mod crypto {
 	app_crypto!(sr25519, KEY_TYPE);
 
 	pub struct TestAuthId;
-	// implemented for untime
+	// implemented for runtime
 	impl frame_system::offchain::AppCrypto<MultiSigner, MultiSignature> for TestAuthId {
 		type RuntimeAppPublic = Public;
 		type GenericSignature = sp_core::sr25519::Signature;
@@ -139,7 +139,8 @@ pub mod pallet {
 	#[pallet::generate_store(pub(super) trait Store)]
 	pub struct Pallet<T>(_);
 
-    /// map the public key to a list of multiaddresses
+    /// map the ipfs public key to a list of multiaddresses
+    /// this could be moved to the session pallet
     #[pallet::storage]
     #[pallet::getter(fn bootstrap_nodes)]
     pub(super) type BootstrapNodes<T: Config> = StorageMap<

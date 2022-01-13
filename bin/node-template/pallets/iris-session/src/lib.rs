@@ -27,7 +27,7 @@ use sp_runtime::traits::{Convert, Zero};
 use sp_staking::offence::{Offence, OffenceError, ReportOffence};
 use sp_std::{collections::btree_set::BTreeSet, prelude::*};
 
-pub const LOG_TARGET: &'static str = "runtime::validator-set";
+pub const LOG_TARGET: &'static str = "runtime::iris-session";
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -119,6 +119,7 @@ pub mod pallet {
 		///
 		/// The origin can be configured using the `AddRemoveOrigin` type in the
 		/// host runtime. Can also be set to sudo/root.
+		///
 		#[pallet::weight(0)]
 		pub fn add_validator(origin: OriginFor<T>, validator_id: T::AccountId) -> DispatchResult {
 			T::AddRemoveOrigin::ensure_origin(origin)?;
@@ -164,6 +165,16 @@ pub mod pallet {
 
 			Ok(())
 		}
+
+		/// Add a storage provider to a storage pool
+		/// new storage providers must already be approved validators
+		#[pallet::weight(0)]
+		pub fn join_storage_pool(
+			origin: OriginFor<T>,
+			sp_id: T::AssetId,
+		) -> DispatchResult {
+			Ok(())
+		}
 	}
 }
 
@@ -206,6 +217,9 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
+	/// Ensure the candidate validator is eligible to be a validator
+	/// 1) Check that it is not a duplicate
+	/// 2) 
 	fn approve_validator(validator_id: T::AccountId) -> DispatchResult {
 		let approved_set: BTreeSet<_> = <ApprovedValidators<T>>::get().into_iter().collect();
 		ensure!(!approved_set.contains(&validator_id), Error::<T>::Duplicate);
@@ -213,6 +227,7 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
+	/// Remote a validator from the list of approved validators
 	fn unapprove_validator(validator_id: T::AccountId) -> DispatchResult {
 		let mut approved_set = <ApprovedValidators<T>>::get();
 		approved_set.retain(|v| *v != validator_id);
@@ -250,19 +265,25 @@ impl<T: Config> Pallet<T> {
 // being rotated.
 impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
 	// Plan a new session and provide new validator set.
-	fn new_session(_new_index: u32) -> Option<Vec<T::AccountId>> {
+	fn new_session(new_index: u32) -> Option<Vec<T::AccountId>> {
+		log::info!("Starting new session with index: {:?}", new_index);
 		// Remove any offline validators. This will only work when the runtime
 		// also has the im-online pallet.
 		Self::remove_offline_validators();
-
 		log::debug!(target: LOG_TARGET, "New session called; updated validator set provided.");
+
+		// TODO: Need to verify that storage providers have data pinned...
 
 		Some(Self::validators())
 	}
 
-	fn end_session(_end_index: u32) {}
+	fn end_session(end_index: u32) {
+		log::info!("Ending session with index: {:?}", end_index)
+	}
 
-	fn start_session(_start_index: u32) {}
+	fn start_session(start_index: u32) {
+		log::info!("Starting session with index: {:?}", start_index);
+	}
 }
 
 impl<T: Config> EstimateNextSessionRotation<T::BlockNumber> for Pallet<T> {
