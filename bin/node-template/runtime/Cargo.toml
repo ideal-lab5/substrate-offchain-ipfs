@@ -23,7 +23,7 @@ pallet-randomness-collective-flip = { version = "4.0.0-dev", default-features = 
 pallet-sudo = { version = "4.0.0-dev", default-features = false, path = "../../../frame/sudo" }
 pallet-assets = { version = "4.0.0-dev", default-features = false, path = "../../../frame/assets" }
 pallet-session = { version = "4.0.0-dev", default-features = false, features = ["historical"], path = "../../../frame/session" }
-pallet-iris-asset = { version = "3.0.0", default-features = false, path = "../pallets/iris-asset" }
+pallet-iris-assets = { version = "3.0.0", default-features = false, path = "../pallets/iris-assets" }
 pallet-iris-session = { version = "3.0.0", default-features = false, path = "../pallets/iris-session" }
 
 
@@ -46,8 +46,7 @@ sp-version = { version = "4.0.0-dev", default-features = false, path = "../../..
 # Used for the node template's RPCs
 frame-system-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, path = "../../../frame/system/rpc/runtime-api/" }
 pallet-transaction-payment-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, path = "../../../frame/transaction-payment/rpc/runtime-api/" }
-pallet-iris-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, path = "../pallets/template/rpc/runtime-api/" }
-
+pallet-iris-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, path = "../pallets/iris-assets/rpc/runtime-api/" }
 # Used for runtime benchmarking
 frame-benchmarking = { version = "4.0.0-dev", default-features = false, path = "../../../frame/benchmarking", optional = true }
 frame-system-benchmarking = { version = "4.0.0-dev", default-features = false, path = "../../../frame/system/benchmarking", optional = true }
@@ -72,7 +71,7 @@ std = [
 	"pallet-grandpa/std",
 	"pallet-randomness-collective-flip/std",
 	"pallet-sudo/std",
-	"pallet-iris-asset/std",
+	"pallet-iris-assets/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-iris-rpc-runtime-api/std",
@@ -99,7 +98,7 @@ runtime-benchmarks = [
 	"frame-system/runtime-benchmarks",
 	"hex-literal",
 	"pallet-balances/runtime-benchmarks",
-	"pallet-iris-asset/runtime-benchmarks",
+	"pallet-iris-assets/runtime-benchmarks",
 	"pallet-iris-session/std",
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-assets/runtime-benchmarks",

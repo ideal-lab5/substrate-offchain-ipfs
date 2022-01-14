@@ -31,9 +31,10 @@ frame-system = { default-features = false, version = "4.0.0-dev", path = "../../
 frame-benchmarking = { default-features = false, version = "4.0.0-dev", path = "../../../../frame/benchmarking", optional = true }
 log = { version = "0.4.14", default-features = false }
 
-pallet-balances = { version = "4.0.0-dev", default-features = false, path = "../../../../frame/balances" }
+# pallet-balances = { version = "4.0.0-dev", default-features = false, path = "../../../../frame/balances" }
 pallet-assets = { version = "4.0.0-dev", default-features = false, path = "../../../../frame/assets" }
 pallet-session = { version = "4.0.0-dev", default-features = false, features = ["historical"], path = "../../../../frame/session" }
+pallet-iris-assets = { version = "3.0.0", default-features = false, path = "../iris-assets" }
 
 [features]
 default = ['std']
@@ -49,9 +50,9 @@ std = [
 	'sp-runtime/std',
 	'sp-staking/std',
 	'log/std',
-	'pallet-assets/std',
-	'pallet-balances/std',
 	'pallet-session/std',
+	'pallet-assets/std',
+	'pallet-iris-assets/std',
 ]
 
 runtime-benchmarks = ["frame-benchmarking"]

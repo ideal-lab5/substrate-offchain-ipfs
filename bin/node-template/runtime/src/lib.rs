@@ -55,7 +55,7 @@ pub use sp_runtime::{Perbill, Permill};
 
 
 /// Import the template pallet.
-pub use pallet_iris_asset;
+pub use pallet_iris_assets;
 pub use pallet_iris_session;
 
 /// An index to a block.
@@ -223,6 +223,7 @@ impl pallet_iris_session::Config for Runtime {
 	type Event = Event;
 	type AddRemoveOrigin = EnsureRoot<AccountId>;
 	type MinAuthorities = MinAuthorities;
+	type AuthorityId = pallet_iris_assets::crypto::TestAuthId;
 }
 
 parameter_types! {
@@ -348,11 +349,11 @@ impl pallet_assets::Config for Runtime {
 ///   inside `create_transaction` function.
 pub type SignedPayload = generic::SignedPayload<Call, SignedExtra>;
 
-/// Configure the pallet-template in pallets/template.
-impl pallet_iris_asset::Config for Runtime {
+/// configure the iris assets pallet
+impl pallet_iris_assets::Config for Runtime {
 	type Event = Event;
 	type Call = Call;
-	type AuthorityId = pallet_iris_asset::crypto::TestAuthId;
+	type AuthorityId = pallet_iris_assets::crypto::TestAuthId;
 	type Currency = Balances;
 }
 
@@ -426,7 +427,7 @@ construct_runtime!(
 		Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>},
 		// Include the custom logic from the pallet-template in the runtime.
 		IrisSession: pallet_iris_session::{Pallet, Call, Storage, Event<T>, Config<T>},
-		Iris: pallet_iris_asset::{Pallet, Call, Storage, Event<T>},
+		Iris: pallet_iris_assets::{Pallet, Call, Storage, Event<T>},
 		Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>},
 		Assets: pallet_assets::{Pallet, Storage, Event<T>},
 		// removed call to make extrinsics uncallable
@@ -658,7 +659,7 @@ impl_runtime_apis! {
 			add_benchmark!(params, batches, frame_system, SystemBench::<Runtime>);
 			add_benchmark!(params, batches, pallet_balances, Balances);
 			add_benchmark!(params, batches, pallet_timestamp, Timestamp);
-			add_benchmark!(params, batches, pallet_iris_asset, Iris);
+			add_benchmark!(params, batches, pallet_iris_assets, Iris);
 
 			if batches.is_empty() { return Err("Benchmark not found for this pallet.".into()) }
 			Ok(batches)
