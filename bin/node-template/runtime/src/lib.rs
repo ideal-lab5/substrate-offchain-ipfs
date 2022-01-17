@@ -48,6 +48,7 @@ pub use frame_support::{
 pub use pallet_balances::Call as BalancesCall;
 pub use pallet_timestamp::Call as TimestampCall;
 pub use pallet_assets::Call as AssetsCall;
+// pub use pallet_iris_asset::Call as IrisAssetsCall;
 use pallet_transaction_payment::CurrencyAdapter;
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
@@ -221,6 +222,8 @@ parameter_types! {
 
 impl pallet_iris_session::Config for Runtime {
 	type Event = Event;
+	type Call = Call;
+	// type IrisAssetsCall = IrisAssetsCall;
 	type AddRemoveOrigin = EnsureRoot<AccountId>;
 	type MinAuthorities = MinAuthorities;
 	type AuthorityId = pallet_iris_assets::crypto::TestAuthId;
@@ -425,12 +428,10 @@ construct_runtime!(
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
 		TransactionPayment: pallet_transaction_payment::{Pallet, Storage},
 		Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>},
-		// Include the custom logic from the pallet-template in the runtime.
 		IrisSession: pallet_iris_session::{Pallet, Call, Storage, Event<T>, Config<T>},
 		Iris: pallet_iris_assets::{Pallet, Call, Storage, Event<T>},
 		Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>},
 		Assets: pallet_assets::{Pallet, Storage, Event<T>},
-		// removed call to make extrinsics uncallable
 		Aura: pallet_aura::{Pallet, Config<T>},
 		Grandpa: pallet_grandpa::{Pallet, Call, Storage, Config, Event},
 		// Historical: pallet_session_historical::{Pallet},
@@ -604,7 +605,7 @@ impl_runtime_apis! {
 			signature: Bytes,
 			message: Bytes
 		) -> Bytes {
-			Iris::retrieve_bytes(public_key, signature, message)
+			IrisSession::retrieve_bytes(public_key, signature, message)
 		}
 	}
 

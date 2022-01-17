@@ -1,0 +1,170 @@
+docker build -t iridiumlabs/iris-ui -f Dockerfile.dev .
+
+docker build -t iridiumlabs/iris-ui -f Dockerfile.prod .
+
+to run the dev image
+docker run -it --rm -p 3000:3000 -e "REACT_APP_IPV4=192.168.101.47" iridiumlabs/iris-ui:latest
+
+to run the prod image
+docker run -it --rm -p 3000:80 -e REACT_APP_IPV4="10.0.0.131" iridiumlabs/iris-ui
+
+
+docker build -t iridiumlabs/iris -f ./.maintain/Dockerfile .
+
+--dev 
+
+
+docker run -p 9944:9944 \
+  -p 9933:9933 \
+  -p 30333:30333 \
+  -p 9615:9615 \
+  -it \
+  --rm \
+  --name iris-node0 \
+  iridiumlabs/iris \
+  --alice --ws-external --rpc-external --validator --rpc-methods=unsafe --dev \
+  --node-key 0000000000000000000000000000000000000000000000000000000000000001
+
+
+docker run -p 9945:9944 \
+  -p 9934:9933 \
+  -p 30334:30333 \
+  -p 9616:9615 \
+  -it \
+  --rm \
+  --name iris-node1 \
+  iridiumlabs/iris \
+  --bob --dev --ws-external --rpc-external --rpc-methods=unsafe \
+  --bootnodes /ip4/172.17.0.2/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
+
+
+  
+docker run -p 9944:9944 \
+  -p 9933:9933 \
+  -p 30333:30333 \
+  -p 9615:9615 \
+  -it \
+  --rm \
+--mount type=bind,source=/run/desktop/mnt/d/work/driemworks/substrate/customSpecRaw.json,target=/app/spec.json \
+  --name iris-alice \
+  iridiumlabs/iris \
+  --ws-external --rpc-external --validator --rpc-methods=unsafe --chain local \
+  --node-key 0000000000000000000000000000000000000000000000000000000000000001
+  
+  
+--mount type=bind,source=d/work/driemworks/substrate/customSpecRaw.json,target=/app/spec.json \
+-v /d/work/driemworks/substrate/customSpecRaw.json:/data/customSpecRaw.json:ro \
+  
+docker run -p 9944:9944 \
+  -p 9933:9933 \
+  -p 30333:30333 \
+  -p 9615:9615 \
+  --rm \
+-v /d/work/driemworks/substrate/:/data/:ro \
+  --name iris-alice \
+  iridiumlabs/iris \
+  --ws-external --rpc-external --validator --rpc-methods=unsafe --chain local \
+  --node-key 0000000000000000000000000000000000000000000000000000000000000001
+  
+docker run -p 9945:9944 \
+  -p 9934:9933 \
+  -p 30334:30333 \
+  -p 9616:9615 \
+  -it \
+  --rm \
+  --name iris-bob \
+  iridiumlabs/iris \
+  --ws-external --rpc-external --validator --rpc-methods=unsafe --chain ./customSpecRaw.json \
+  --node-key 0000000000000000000000000000000000000000000000000000000000000002 \
+  --bootnodes /ip4/172.17.0.2/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
+--dev 
+
+
+./target/release/node-template purge-chain --base-path /tmp/alice --dev -y
+./target/release/node-template \
+ --tmp \
+--dev \
+--alice \
+--port 30333 \
+--ws-port 9944 \
+--rpc-port 9933 \
+--rpc-cors all \
+--ws-external \
+--rpc-external \
+--rpc-methods=unsafe
+ \
+--validator
+
+c
+./target/release/node-template purge-chain --base-path /tmp/bob --dev -y  
+./target/release/node-template \
+--tmp \
+--dev \
+--bob \
+--port 30334 \
+--ws-port 9945 \
+--rpc-port 9934 \
+--rpc-cors all \
+--ws-external \
+--rpc-external \
+--rpc-methods=unsafe \
+--bootnodes /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWMsPMyEFkb7DbyBE7WNhU8iUFfoq7DLybMe4ZzRmwZ5QT
+
+To generate new keys
+```
+./target/release/node-template key generate --scheme Sr25519 --password-interactive
+output:
+  Key password:
+Secret phrase:       embrace side business buzz maple photo merry flash uncle equal manage country
+  Secret seed:       0xcb950daa86c795a824f7360c9bd6b8cce4177f1daeaa8867633c5a4471184982
+  Public key (hex):  0x965bfbbfac942bc532619ef05ed42ed68ad70c2260b0b65409c8046cad3c272b
+  Account ID:        0x965bfbbfac942bc532619ef05ed42ed68ad70c2260b0b65409c8046cad3c272b
+  Public key (SS58): 5FTrN6uanEycLVNBwhNhqR82NcMYHFCcXLAXsERKt1ARE2tE
+  SS58 Address:      5FTrN6uanEycLVNBwhNhqR82NcMYHFCcXLAXsERKt1ARE2tE
+
+
+./target/release/node-template key inspect --password-interactive --scheme Ed25519 <secret seed>
+```
+./target/release/node-template key inspect --password-interactive --scheme Ed25519 0xcb950daa86c795a824f7360c9bd6b8cce4177f1daeaa8867633c5a4471184982
+
+output: 
+Secret Key URI `0xcb950daa86c795a824f7360c9bd6b8cce4177f1daeaa8867633c5a4471184982` is account:
+  Secret seed:       0xcb950daa86c795a824f7360c9bd6b8cce4177f1daeaa8867633c5a4471184982
+  Public key (hex):  0xe2942589d9e3845353cf17b44e3e14dc1f069491d4960a34ce7e3d1d172952d6
+  Account ID:        0xe2942589d9e3845353cf17b44e3e14dc1f069491d4960a34ce7e3d1d172952d6
+  Public key (SS58): 5HBngrAn1eBbybHydEw7dErtd9bpwAz46pHBU9BTb8JobwWZ
+  SS58 Address:      5HBngrAn1eBbybHydEw7dErtd9bpwAz46pHBU9BTb8JobwWZ  
+
+
+---
+
+5DoJJAMZYtKP868F2r7cPPJZeknYyfeYLYXsQ4MTaGiMKsDN
+5CdaMT4b2BLh4zCdjtW5gbFErYkv8aQEvFsYBHXRYdsVHcyN
+---
+./target/release/node-template key inspect --password-interactive --scheme Ed25519 0xd8a895b25f622ed9fdca0d36fadafc5be465b92e0d5f91c66157718177b81d30
+
+
+https://docs.substrate.io/tutorials/v3/private-network/
+
+
+to insert keys to create blocks
+./target/release/node-template key insert --base-path /tmp/node01 --chain customSpecRaw.json --suri 0xcb950daa86c795a824f7360c9bd6b8cce4177f1daeaa8867633c5a4471184982 --password-interactive --key-type aura
+
+to finalize blocks
+./target/release/node-template key insert --base-path /tmp/node01 --chain customSpecRaw.json --suri 0xcb950daa86c795a824f7360c9bd6b8cce4177f1daeaa8867633c5a4471184982 --password-interactive --key-type gran
+
+
+
+
+
+ curl http://localhost:9933 -H "Content-Type:application/json;charset=utf-8" -d '{"jsonrpc": "2.0", "id": "1", "method": "iris_retrieveBytes", "params": ["", "", "0x516d505a763750386e51555368324370715476556559656d46796a764d6a67574573384831546d3862337a416d39"]}'
+
+ curl http://localhost:9933 -H "Content-Type:application/json;charset=utf-8" -d '{"jsonrpc": "2.0", "id": "1", "method": "system_localListenAddresses", "params": []}'
+ 
+ 
+ {\"jsonrpc\": \"2.0\", \"id\": \"1\", \"method\": \"system_localListeningAddresses\", \"params\": []}
+ 
+ 
+ 
+ IRIS 0x6dcf6f039825861149726973
+ BootstrapNodes 8aadd98b1699270c426f6f7473747261704e6f646573
