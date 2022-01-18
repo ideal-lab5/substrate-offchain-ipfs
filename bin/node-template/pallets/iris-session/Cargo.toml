@@ -2,7 +2,7 @@
 authors = ['Iridium <https://github.com/iridium-labs>']
 edition = '2018'
 name = 'pallet-iris-session'
-version = "3.0.0"
+version = "1.0.0"
 license = "Unlicense"
 homepage = "https://substrate.dev"
 repository = "https://github.com/substrate-developer-hub/substrate-node-template/"
@@ -34,7 +34,7 @@ log = { version = "0.4.14", default-features = false }
 # pallet-balances = { version = "4.0.0-dev", default-features = false, path = "../../../../frame/balances" }
 pallet-assets = { version = "4.0.0-dev", default-features = false, path = "../../../../frame/assets" }
 pallet-session = { version = "4.0.0-dev", default-features = false, features = ["historical"], path = "../../../../frame/session" }
-pallet-iris-assets = { version = "3.0.0", default-features = false, path = "../iris-assets" }
+pallet-iris-assets = { version = "1.0.0", default-features = false, path = "../iris-assets" }
 
 [features]
 default = ['std']

@@ -226,7 +226,7 @@ impl pallet_iris_session::Config for Runtime {
 	// type IrisAssetsCall = IrisAssetsCall;
 	type AddRemoveOrigin = EnsureRoot<AccountId>;
 	type MinAuthorities = MinAuthorities;
-	type AuthorityId = pallet_iris_assets::crypto::TestAuthId;
+	type AuthorityId = pallet_iris_session::crypto::TestAuthId;
 }
 
 parameter_types! {
@@ -356,7 +356,7 @@ pub type SignedPayload = generic::SignedPayload<Call, SignedExtra>;
 impl pallet_iris_assets::Config for Runtime {
 	type Event = Event;
 	type Call = Call;
-	type AuthorityId = pallet_iris_assets::crypto::TestAuthId;
+	// type AuthorityId = pallet_iris_assets::crypto::TestAuthId;
 	type Currency = Balances;
 }
 
@@ -423,18 +423,16 @@ construct_runtime!(
 		UncheckedExtrinsic = UncheckedExtrinsic
 	{
 		System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
-		// RandomnessCollectiveFlip: pallet_randomness_collective_flip::{Pallet, Storage},
 		Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
 		TransactionPayment: pallet_transaction_payment::{Pallet, Storage},
 		Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>},
-		IrisSession: pallet_iris_session::{Pallet, Call, Storage, Event<T>, Config<T>},
 		Iris: pallet_iris_assets::{Pallet, Call, Storage, Event<T>},
+		IrisSession: pallet_iris_session::{Pallet, Call, Storage, Event<T>, Config<T>},
 		Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>},
 		Assets: pallet_assets::{Pallet, Storage, Event<T>},
 		Aura: pallet_aura::{Pallet, Config<T>},
 		Grandpa: pallet_grandpa::{Pallet, Call, Storage, Config, Event},
-		// Historical: pallet_session_historical::{Pallet},
 	}
 );
 

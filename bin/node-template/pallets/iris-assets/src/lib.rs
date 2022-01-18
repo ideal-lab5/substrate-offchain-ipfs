@@ -60,35 +60,6 @@ use sp_std::{
     convert::TryInto,
 };
 
-pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"iris");
-
-
-pub mod crypto {
-	use crate::KEY_TYPE;
-	use sp_core::sr25519::Signature as Sr25519Signature;
-	use sp_runtime::app_crypto::{app_crypto, sr25519};
-	use sp_runtime::{traits::Verify, MultiSignature, MultiSigner};
-
-	app_crypto!(sr25519, KEY_TYPE);
-
-	pub struct TestAuthId;
-	// implemented for runtime
-	impl frame_system::offchain::AppCrypto<MultiSigner, MultiSignature> for TestAuthId {
-		type RuntimeAppPublic = Public;
-		type GenericSignature = sp_core::sr25519::Signature;
-		type GenericPublic = sp_core::sr25519::Public;
-	}
-
-	// implemented for mock runtime in test
-	impl frame_system::offchain::AppCrypto<<Sr25519Signature as Verify>::Signer, Sr25519Signature>
-		for TestAuthId
-	{
-		type RuntimeAppPublic = Public;
-		type GenericSignature = sp_core::sr25519::Signature;
-		type GenericPublic = sp_core::sr25519::Public;
-	}
-}
-
 #[derive(Encode, Decode, RuntimeDebug, PartialEq, TypeInfo)]
 pub enum DataCommand<LookupSource, AssetId, Balance, AccountId> {
     /// (ipfs_address, cid, requesting node address, filename, asset id, balance)
@@ -97,7 +68,7 @@ pub enum DataCommand<LookupSource, AssetId, Balance, AccountId> {
     CatBytes(AccountId, Vec<u8>, AccountId),
 }
 
-#[derive(Encode, Decode, RuntimeDebug, PartialEq, TypeInfo)]
+#[derive(Encode, Decode, RuntimeDebug, Clone, Default, Eq, PartialEq, TypeInfo)]
 pub struct StoragePool<AccountId> {
     max_redundancy: u32,
     candidate_storage_providers: Vec<AccountId>,
@@ -132,11 +103,9 @@ pub mod pallet {
 
 	#[pallet::config]
     /// the module configuration trait
-	pub trait Config:CreateSignedTransaction<Call<Self>> + frame_system::Config + pallet_assets::Config {
+	pub trait Config: frame_system::Config + pallet_assets::Config {
         /// The overarching event type
 		type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
-        /// the authority id used for sending signed txs
-        type AuthorityId: AppCrypto<Self::Public, Self::Signature>;
         /// the overarching call type
 	    type Call: From<Call<Self>>;
         /// the currency used
@@ -215,11 +184,14 @@ pub mod pallet {
 
     #[pallet::storage]
     #[pallet::getter(fn storage_pool_config)]
-    pub(super) type StoragePoolConfig<T: Config> = StorageMap<
+    pub(super) type StoragePoolConfig<T: Config> = StorageDoubleMap<
         _,
+        Blake2_128Concat,
+        T::AccountId,
         Blake2_128Concat,
         T::AssetId,
         StoragePool<T::AccountId>,
+        ValueQuery,
     >;
 
 	#[pallet::event]
@@ -395,41 +367,41 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Should only be callable by OCWs (TODO)
-        /// Submit the results of an `ipfs identity` call to be stored on chain
-        ///
-        /// * origin: a validator node
-        /// * public_key: The IPFS node's public key
-        /// * multiaddresses: A vector of multiaddresses associate with the public key
-        ///
-        #[pallet::weight(0)]
-        pub fn submit_ipfs_identity(
-            origin: OriginFor<T>,
-            public_key: Vec<u8>,
-            multiaddresses: Vec<OpaqueMultiaddr>,
-        ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-            <BootstrapNodes::<T>>::insert(public_key.clone(), multiaddresses.clone());
-            Self::deposit_event(Event::PublishedIdentity(who.clone()));
-            Ok(())
-        }
+        // /// Should only be callable by OCWs (TODO)
+        // /// Submit the results of an `ipfs identity` call to be stored on chain
+        // ///
+        // /// * origin: a validator node
+        // /// * public_key: The IPFS node's public key
+        // /// * multiaddresses: A vector of multiaddresses associate with the public key
+        // ///
+        // #[pallet::weight(0)]
+        // pub fn submit_ipfs_identity(
+        //     origin: OriginFor<T>,
+        //     public_key: Vec<u8>,
+        //     multiaddresses: Vec<OpaqueMultiaddr>,
+        // ) -> DispatchResult {
+        //     let who = ensure_signed(origin)?;
+        //     <BootstrapNodes::<T>>::insert(public_key.clone(), multiaddresses.clone());
+        //     Self::deposit_event(Event::PublishedIdentity(who.clone()));
+        //     Ok(())
+        // }
 
-        /// Should only be callable by OCWs (TODO)
-        /// Submit the results onchain to notify a beneficiary that their data is available: TODO: how to safely share host? spam protection on rpc endpoints?
-        ///
-        /// * `beneficiary`: The account that requested the data
-        /// * `host`: The node's host where the data has been made available (RPC endpoint)
-        ///
-        #[pallet::weight(0)]
-        pub fn submit_rpc_ready(
-            origin: OriginFor<T>,
-            beneficiary: T::AccountId,
-            // host: Vec<u8>,
-        ) -> DispatchResult {
-            ensure_signed(origin)?;
-            Self::deposit_event(Event::DataReady(beneficiary));
-            Ok(())
-        }
+        // /// Should only be callable by OCWs (TODO)
+        // /// Submit the results onchain to notify a beneficiary that their data is available: TODO: how to safely share host? spam protection on rpc endpoints?
+        // ///
+        // /// * `beneficiary`: The account that requested the data
+        // /// * `host`: The node's host where the data has been made available (RPC endpoint)
+        // ///
+        // #[pallet::weight(0)]
+        // pub fn submit_rpc_ready(
+        //     origin: OriginFor<T>,
+        //     beneficiary: T::AccountId,
+        //     // host: Vec<u8>,
+        // ) -> DispatchResult {
+        //     ensure_signed(origin)?;
+        //     Self::deposit_event(Event::DataReady(beneficiary));
+        //     Ok(())
+        // }
 
         /// Only callable by the owner of the asset class 
         /// mint a static number of assets (tickets) for some asset class
@@ -476,7 +448,7 @@ pub mod pallet {
                 current_session_storage_providers: Vec::new(),
                 owner: who.clone(),
             };
-            <StoragePoolConfig::<T>>::insert(asset_id.clone(), new_sp_config);
+            <StoragePoolConfig::<T>>::insert(who.clone(), asset_id.clone(), new_sp_config);
             Self::deposit_event(
                 Event::StoragePoolConfigurationSuccess(
                     who.clone(), asset_id.clone()));
@@ -486,10 +458,15 @@ pub mod pallet {
         #[pallet::weight(0)]
         pub fn try_add_candidate_storage_provider(
             origin: OriginFor<T>,
+            pool_owner: T::AccountId,
             pool_id: T::AssetId,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             
+            Self::do_add_candidate_storage_provider(
+                pool_owner.clone(), pool_id.clone(), who.clone()
+            );
+
             Ok(())
         }
 	}
@@ -497,11 +474,19 @@ pub mod pallet {
 
 impl<T: Config> Pallet<T> {
 
-    // fn try_add_candidate_storage_provider(
-    //     pool_id: T::AssetId,
-    //     candidate_storage_provider: T::AccountId,
-    // ) -> Result<(), Error<T>> {
-    //     Ok(())
-    // }
+    fn do_add_candidate_storage_provider(
+        pool_admin: T::AccountId,
+        pool_id: T::AssetId,
+        candidate_storage_provider: T::AccountId,
+    ) -> Result<(), Error<T>> {
+        let mut sp = StoragePoolConfig::<T>::get(pool_admin.clone(), pool_id.clone());
+        // TODO: check duplicates
+        sp.candidate_storage_providers.push(candidate_storage_provider);
+        <StoragePoolConfig::<T>>::insert(
+            pool_admin.clone(), pool_id.clone(), sp
+        );
+
+        Ok(())
+    }
 
 }

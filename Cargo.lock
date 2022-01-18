@@ -5852,7 +5852,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-iris-assets"
-version = "3.0.0"
+version = "1.0.0"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -5860,7 +5860,6 @@ dependencies = [
  "log 0.4.14",
  "pallet-assets",
  "pallet-balances",
- "pallet-session",
  "parity-scale-codec",
  "scale-info",
  "sp-core",
@@ -5890,7 +5889,7 @@ dependencies = [
 name = "pallet-iris-rpc-runtime-api"
 version = "4.0.0-dev"
 dependencies = [
- "pallet-iris-assets",
+ "pallet-iris-session",
  "parity-scale-codec",
  "sp-api",
  "sp-core",
@@ -5899,7 +5898,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-iris-session"
-version = "3.0.0"
+version = "1.0.0"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
