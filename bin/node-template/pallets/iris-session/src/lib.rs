@@ -136,6 +136,17 @@ pub mod pallet {
         ValueQuery,
     >;
 
+	/// map substrate public key to ipfs public key
+	#[pallet::storage]
+	#[pallet::getter(fn substrate_ipfs_bridge)]
+	pub(super) type SubstrateIpfsBridge<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		T::AccountId,
+		Vec<u8>,
+		ValueQuery,
+	>;
+
 	#[pallet::storage]
 	#[pallet::getter(fn validators)]
 	pub type Validators<T: Config> = StorageValue<_, Vec<T::AccountId>, ValueQuery>;
@@ -344,7 +355,17 @@ pub mod pallet {
             multiaddresses: Vec<OpaqueMultiaddr>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            <BootstrapNodes::<T>>::insert(public_key.clone(), multiaddresses.clone());
+            
+			<BootstrapNodes::<T>>::insert(
+				public_key.clone(), 
+				multiaddresses.clone()
+			);
+
+			<SubstrateIpfsBridge::<T>>::insert(
+				who.clone(), 
+				public_key.clone()
+			);
+
             Self::deposit_event(Event::PublishedIdentity(who.clone()));
             Ok(())
         }
@@ -408,12 +429,12 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// Ensure the candidate validator is eligible to be a validator
-	/// 1) Check that it is not a duplicate
-	/// 2) 
 	fn approve_validator(validator_id: T::AccountId) -> DispatchResult {
 		let approved_set: BTreeSet<_> = <ApprovedValidators<T>>::get().into_iter().collect();
 		ensure!(!approved_set.contains(&validator_id), Error::<T>::Duplicate);
 		<ApprovedValidators<T>>::mutate(|v| v.push(validator_id.clone()));
+		log::info!("HEY JUST WANTED TO DISPLAY IN THE LOGS WHERE THIS IS GETTING EXECUTED AND HOW FREQUENTLY SO TAHT I CAN BETTER UNDERSTAND THE FLOW");
+		log::info!("HEY JUST WANTED TO DISPLAY IN THE LOGS WHERE THIS IS GETTING EXECUTED AND HOW FREQUENTLY SO TAHT I CAN BETTER UNDERSTAND THE FLOW");
 		// In storage pool -> move from candidate storage provider to storage provider
 		Ok(())
 	}
@@ -591,12 +612,6 @@ impl<T: Config> Pallet<T> {
                                         );
                                     }
                                     let results = signer.send_signed_transaction(|_account| { 
-										// Ca::submit_ipfs_add_results{
-                                        //     admin: admin.clone(),
-                                        //     cid: new_cid.clone(),
-                                        //     id: id.clone(),
-                                        //     balance: balance.clone(),
-                                        // }
                                         Call::submit_ipfs_add_results{
                                             admin: admin.clone(),
                                             cid: new_cid.clone(),
@@ -662,7 +677,10 @@ impl<T: Config> Pallet<T> {
 					} else {
 						log::error!("the provided owner/cid does not map to a valid asset id: {:?}, {:?}", owner, cid)
 					}
-                }
+                },
+				DataCommand::PinCID() => {
+
+				}
             }
         }
 
@@ -699,9 +717,6 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
 		// also has the im-online pallet.
 		Self::remove_offline_validators();
 		log::debug!(target: LOG_TARGET, "New session called; updated validator set provided.");
-
-		// TODO: Need to verify that storage providers have data pinned...
-		
 		Some(Self::validators())
 	}
 

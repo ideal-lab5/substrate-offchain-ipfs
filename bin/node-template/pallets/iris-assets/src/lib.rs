@@ -64,8 +64,9 @@ use sp_std::{
 pub enum DataCommand<LookupSource, AssetId, Balance, AccountId> {
     /// (ipfs_address, cid, requesting node address, filename, asset id, balance)
     AddBytes(OpaqueMultiaddr, Vec<u8>, LookupSource, Vec<u8>, AssetId, Balance),
-    // /// owner, cid
+    // /// owner, cid, recipient
     CatBytes(AccountId, Vec<u8>, AccountId),
+    PinCID(),
 }
 
 #[derive(Encode, Decode, RuntimeDebug, Clone, Default, Eq, PartialEq, TypeInfo)]
@@ -247,26 +248,9 @@ pub mod pallet {
 
             0
         }
-        fn offchain_worker(block_number: T::BlockNumber) {
-            // // every 5 blocks
-            // if block_number % 5u32.into() == 0u32.into() {
-            //     if let Err(e) = Self::connection_housekeeping() {
-            //         log::error!("IPFS: Encountered an error while processing data requests: {:?}", e);
-            //     }
-            // }    
-
-            // // handle data requests each block
-            // if let Err(e) = Self::handle_data_requests() {
-            //     log::error!("IPFS: Encountered an error while processing data requests: {:?}", e);
-            // }
-
-            // // every 5 blocks
-            // if block_number % 5u32.into() == 0u32.into() {
-            //     if let Err(e) = Self::print_metadata() {
-            //         log::error!("IPFS: Encountered an error while obtaining metadata: {:?}", e);
-            //     }
-            // }
-        }
+        // fn offchain_worker(block_number: T::BlockNumber) {
+           
+        // }
     }
 
 	#[pallet::call]
