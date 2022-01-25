@@ -59,7 +59,8 @@ use pallet_iris_assets::{
 };
 
 pub const LOG_TARGET: &'static str = "runtime::iris-session";
-pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"iris");
+// pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"iris");
+pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"aura");
 
 pub mod crypto {
 	use crate::KEY_TYPE;
@@ -146,16 +147,6 @@ pub mod pallet {
 		ValueQuery,
 	>;
 
-	#[pallet::storage]
-	#[pallet::getter(fn substrate_ipfs_bridge)]
-	pub(super) type SubstrateIpfsBridge<T: Config> = StorageMap<
-		_,
-		Blake2_128Concat,
-		T::AccountId,
-		Vec<u8>,
-		ValueQuery,
-	>;
-
 	/// Maps an asset id to a collection of nodes that want to provider storage
 	#[pallet::storage]
 	#[pallet::getter(fn candidate_storage_providers)]
@@ -171,6 +162,17 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn storage_providers)]
 	pub(super) type StorageProviders<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		T::AssetId,
+		Vec<T::AccountId>,
+		ValueQuery,
+	>;
+
+	/// maps an asset id to a collection of nodes that have inserted the pin for the underlying cid
+	#[pallet::storage]
+	#[pallet::getter(fn pinners)]
+	pub(super) type Pinners<T: Config> = StorageMap<
 		_,
 		Blake2_128Concat,
 		T::AssetId,
@@ -226,6 +228,8 @@ pub mod pallet {
 		InsufficientBalance,
 		/// the node is already a candidate for some storage pool
 		AlreadyACandidate,
+		/// the node has already pinned the CID
+		AlreadyPinned,
 	}
 
 	#[pallet::hooks]
@@ -335,8 +339,8 @@ pub mod pallet {
 			// submit a request to join a storage pool in the next session
 			let who = ensure_signed(origin)?;
 			let new_origin = system::RawOrigin::Signed(who.clone()).into();
-			let csp = <CandidateStorageProviders::<T>>::get(pool_id.clone());
-			ensure!(!csp.contains(&who), Error::<T>::AlreadyACandidate);
+			let candidate_storage_providers = <CandidateStorageProviders::<T>>::get(pool_id.clone());
+			ensure!(!candidate_storage_providers.contains(&who), Error::<T>::AlreadyACandidate);
 			// TODO: we need a better scheme for *generating* pool ids -> should always be unique (cid + owner maybe?)
 			<CandidateStorageProviders<T>>::mutate(pool_id.clone(), |sp| {
 				sp.push(who.clone());
@@ -365,6 +369,7 @@ pub mod pallet {
         ) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			let new_origin = system::RawOrigin::Signed(who.clone()).into();
+			// creates the asset class
             <pallet_iris_assets::Pallet<T>>::submit_ipfs_add_results(
 				new_origin,
 				admin,
@@ -394,6 +399,21 @@ pub mod pallet {
 			Self::deposit_event(Event::PublishedIdentity(who.clone()));
             Ok(())
         }
+
+		#[pallet::weight(0)]
+		pub fn submit_ipfs_pin_result(
+			origin: OriginFor<T>,
+			asset_id: T::AssetId,
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			let current_pinners = <Pinners::<T>>::get(asset_id.clone());
+			ensure!(!current_pinners.contains(&who), Error::<T>::AlreadyPinned);
+			// TODO: we need a better scheme for *generating* pool ids -> should always be unique (cid + owner maybe?)
+			<Pinners<T>>::mutate(asset_id.clone(), |p| {
+				p.push(who.clone());
+			});
+			Ok(())
+		}
 
         /// Should only be callable by OCWs (TODO)
         /// Submit the results onchain to notify a beneficiary that their data is available: TODO: how to safely share host? spam protection on rpc endpoints?
@@ -714,7 +734,7 @@ impl<T: Config> Pallet<T> {
 						log::error!("the provided owner/cid does not map to a valid asset id: {:?}, {:?}", owner, asset_id)
 					}
                 },
-				DataCommand::PinCID(acct, cid) => {
+				DataCommand::PinCID(acct, asset_id, cid) => {
 					let (public_key, addrs) = 
 						if let IpfsResponse::Identity(public_key, addrs) = 
 							Self::ipfs_request(IpfsRequest::Identity, deadline)? {
@@ -723,13 +743,29 @@ impl<T: Config> Pallet<T> {
 						unreachable!("only `Identity` is a valid response type.");
 					};
 					let expected_pub_key = <SubstrateIpfsBridge::<T>>::get(acct);
+					// todo: create new error enum if this is the route i choose
 					ensure!(public_key == expected_pub_key, Error::<T>::BadOrigin);
 					match Self::ipfs_request(IpfsRequest::InsertPin(cid.clone(), false), deadline) {
-						// todo: create new error enum if this is the route i choose
 						Ok(IpfsResponse::Success) => {
 							log::info!("IPFS: Pinned CID {:?}", cid.clone());
-							// TODO: Call some extrinsic to report you have pinned
-							// the cid. 'submit_ipfs_pin_results'
+							let signer = Signer::<T, T::AuthorityId>::all_accounts();
+								if !signer.can_sign() {
+									log::error!(
+										"No local accounts available. Consider adding one via `author_insertKey` RPC.",
+									);
+								}
+								let results = signer.send_signed_transaction(|_account| { 
+									Call::submit_ipfs_pin_result{
+										asset_id: asset_id,
+									}
+								});
+						
+								for (_, res) in &results {
+									match res {
+										Ok(()) => log::info!("Submitted ipfs results"),
+										Err(e) => log::error!("Failed to submit transaction: {:?}",  e),
+									}
+								}
 						},
 						Ok(_) => unreachable!("only Success can be a response for that request type"),
 						Err(e) => log::error!("IPFS: insert pin error: {:?}", e),
@@ -770,7 +806,7 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
 		// Remove any offline validators. This will only work when the runtime
 		// also has the im-online pallet.
 		Self::remove_offline_validators();
-		// Self::select_candidate_storage_providers();
+		Self::select_candidate_storage_providers();
 		log::debug!(target: LOG_TARGET, "New session called; updated validator set provided.");
 		Some(Self::validators())
 	}

@@ -66,8 +66,8 @@ pub enum DataCommand<LookupSource, AssetId, Balance, AccountId> {
     AddBytes(OpaqueMultiaddr, Vec<u8>, LookupSource, Vec<u8>, AssetId, Balance),
     /// (owner, assetid, recipient)
     CatBytes(AccountId, AssetId, AccountId),
-    /// (node, CID)
-    PinCID(AccountId, Vec<u8>),
+    /// (node, assetid, CID)
+    PinCID(AccountId, AssetId, Vec<u8>),
 }
 
 #[derive(Encode, Decode, RuntimeDebug, Clone, Default, Eq, PartialEq, TypeInfo)]
@@ -393,6 +393,7 @@ pub mod pallet {
             <DataQueue<T>>::mutate(
                 |queue| queue.push(DataCommand::PinCID(
                     who.clone(),
+                    asset_id.clone(),
                     cid.clone(),
                 )));
             Ok(())

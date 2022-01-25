@@ -195,11 +195,11 @@ pub fn new_full(mut config: Configuration) -> Result<TaskManager, ServiceError> 
 		})?;
 	let keystore = keystore_container.sync_keystore();
 	if config.offchain_worker.enabled {
-		sp_keystore::SyncCryptoStore::sr25519_generate_new(
-			&*keystore,
-			KeyTypeId(*b"iris"),
-			Some("//Alice"),
-		).expect("Creating key with account Alice should succeed.");
+		// sp_keystore::SyncCryptoStore::sr25519_generate_new(
+		// 	&*keystore,
+		// 	KeyTypeId(*b"iris"),
+		// 	Some("//Alice"),
+		// ).expect("Creating key with account Alice should succeed.");
 		sc_service::build_offchain_workers(
 			&config,
 			task_manager.spawn_handle(),
