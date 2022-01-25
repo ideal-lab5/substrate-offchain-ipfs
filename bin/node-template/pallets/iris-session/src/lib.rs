@@ -135,6 +135,17 @@ pub mod pallet {
         ValueQuery,
     >;
 
+	/// map substrate public key to ipfs public key
+	#[pallet::storage]
+	#[pallet::getter(fn substrate_ipfs_bridge)]
+	pub(super) type SubstrateIpfsBridge<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		T::AccountId,
+		Vec<u8>,
+		ValueQuery,
+	>;
+
 	#[pallet::storage]
 	#[pallet::getter(fn substrate_ipfs_bridge)]
 	pub(super) type SubstrateIpfsBridge<T: Config> = StorageMap<
