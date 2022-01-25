@@ -125,7 +125,6 @@ pub mod pallet {
 	pub struct Pallet<T>(_);
 
     /// map the ipfs public key to a list of multiaddresses
-    /// this could be moved to the session pallet
     #[pallet::storage]
     #[pallet::getter(fn bootstrap_nodes)]
     pub(super) type BootstrapNodes<T: Config> = StorageMap<
@@ -135,6 +134,38 @@ pub mod pallet {
         Vec<OpaqueMultiaddr>,
         ValueQuery,
     >;
+
+	#[pallet::storage]
+	#[pallet::getter(fn substrate_ipfs_bridge)]
+	pub(super) type SubstrateIpfsBridge<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		T::AccountId,
+		Vec<u8>,
+		ValueQuery,
+	>;
+
+	/// Maps an asset id to a collection of nodes that want to provider storage
+	#[pallet::storage]
+	#[pallet::getter(fn candidate_storage_providers)]
+	pub(super) type CandidateStorageProviders<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		T::AssetId,
+		Vec<T::AccountId>,
+		ValueQuery,
+	>;
+
+	/// maps an asset id to a collection of nodes that are providing storage
+	#[pallet::storage]
+	#[pallet::getter(fn storage_providers)]
+	pub(super) type StorageProviders<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		T::AssetId,
+		Vec<T::AccountId>,
+		ValueQuery,
+	>;
 
 	#[pallet::storage]
 	#[pallet::getter(fn validators)]
@@ -182,6 +213,8 @@ pub mod pallet {
 		NoSuchOwnedContent,
 		/// the nodes balance is insufficient to complete this operation
 		InsufficientBalance,
+		/// the node is already a candidate for some storage pool
+		AlreadyACandidate,
 	}
 
 	#[pallet::hooks]
@@ -291,13 +324,14 @@ pub mod pallet {
 			// submit a request to join a storage pool in the next session
 			let who = ensure_signed(origin)?;
 			let new_origin = system::RawOrigin::Signed(who.clone()).into();
+			let csp = <CandidateStorageProviders::<T>>::get(pool_id.clone());
+			ensure!(!csp.contains(&who), Error::<T>::AlreadyACandidate);
+			// TODO: we need a better scheme for *generating* pool ids -> should always be unique (cid + owner maybe?)
+			<CandidateStorageProviders<T>>::mutate(pool_id.clone(), |sp| {
+				sp.push(who.clone());
+			});
 			let owner = T::Lookup::lookup(pool_owner)?;
-			<pallet_iris_assets::Pallet<T>>::try_add_candidate_storage_provider(
-				new_origin,
-				owner,
-				pool_id.clone(),
-			)?;
-
+			<pallet_iris_assets::Pallet<T>>::insert_pin_request(new_origin, owner, pool_id);
 			Self::deposit_event(Event::RequestJoinStoragePoolSuccess(who.clone(), pool_id.clone()));
 			Ok(())
 		}
@@ -345,7 +379,8 @@ pub mod pallet {
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             <BootstrapNodes::<T>>::insert(public_key.clone(), multiaddresses.clone());
-            Self::deposit_event(Event::PublishedIdentity(who.clone()));
+            <SubstrateIpfsBridge::<T>>::insert(who.clone(), public_key.clone());
+			Self::deposit_event(Event::PublishedIdentity(who.clone()));
             Ok(())
         }
 
@@ -408,13 +443,10 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// Ensure the candidate validator is eligible to be a validator
-	/// 1) Check that it is not a duplicate
-	/// 2) 
 	fn approve_validator(validator_id: T::AccountId) -> DispatchResult {
 		let approved_set: BTreeSet<_> = <ApprovedValidators<T>>::get().into_iter().collect();
 		ensure!(!approved_set.contains(&validator_id), Error::<T>::Duplicate);
 		<ApprovedValidators<T>>::mutate(|v| v.push(validator_id.clone()));
-		// In storage pool -> move from candidate storage provider to storage provider
 		Ok(())
 	}
 
@@ -449,6 +481,20 @@ impl<T: Config> Pallet<T> {
 
 		// Clear the offline validator list to avoid repeated deletion.
 		<OfflineValidators<T>>::put(Vec::<T::AccountId>::new());
+	}
+
+	/// move candidates to the active provider pool for some asset id
+	fn select_candidate_storage_providers() {
+		// TODO: for now, we will just copy the candidates to the active providers map
+		// no real selection is happening yet, just doing this to get it in place for now
+		for assetid in <pallet_iris_assets::Pallet<T>>::asset_ids().into_iter() {
+			// if there are candidates for the asset id
+			if <CandidateStorageProviders<T>>::contains_key(assetid.clone()) {
+				let candidates = <CandidateStorageProviders<T>>::get(assetid.clone());
+				// need to only move candidates that have actually proved they pinned the content
+				<StorageProviders::<T>>::insert(assetid.clone(), candidates);
+			} 
+		}
 	}
 
 	/// implementation for RPC runtime aPI to retrieve bytes from the node's local storage
@@ -591,12 +637,6 @@ impl<T: Config> Pallet<T> {
                                         );
                                     }
                                     let results = signer.send_signed_transaction(|_account| { 
-										// Ca::submit_ipfs_add_results{
-                                        //     admin: admin.clone(),
-                                        //     cid: new_cid.clone(),
-                                        //     id: id.clone(),
-                                        //     balance: balance.clone(),
-                                        // }
                                         Call::submit_ipfs_add_results{
                                             admin: admin.clone(),
                                             cid: new_cid.clone(),
@@ -620,9 +660,9 @@ impl<T: Config> Pallet<T> {
                         Err(e) => log::error!("IPFS: cat error: {:?}", e),
                     }
                 },
-                DataCommand::CatBytes(owner, cid, recipient) => {
-					if let asset_id = <pallet_iris_assets::Pallet<T>>::asset_class_ownership(
-						owner.clone(), cid.clone()
+                DataCommand::CatBytes(owner, asset_id, recipient) => {
+					if let cid = <pallet_iris_assets::Pallet<T>>::asset_class_ownership(
+						owner.clone(), asset_id.clone()
 					) {
 						let balance = <pallet_assets::Pallet<T>>::balance(asset_id.clone(), recipient.clone());
 						let balance_primitive = TryInto::<u64>::try_into(balance).ok();
@@ -660,9 +700,30 @@ impl<T: Config> Pallet<T> {
 							Err(e) => log::error!("IPFS: cat error: {:?}", e),
 						}
 					} else {
-						log::error!("the provided owner/cid does not map to a valid asset id: {:?}, {:?}", owner, cid)
+						log::error!("the provided owner/cid does not map to a valid asset id: {:?}, {:?}", owner, asset_id)
 					}
-                }
+                },
+				DataCommand::PinCID(acct, cid) => {
+					let (public_key, addrs) = 
+						if let IpfsResponse::Identity(public_key, addrs) = 
+							Self::ipfs_request(IpfsRequest::Identity, deadline)? {
+						(public_key, addrs)
+					} else {
+						unreachable!("only `Identity` is a valid response type.");
+					};
+					let expected_pub_key = <SubstrateIpfsBridge::<T>>::get(acct);
+					ensure!(public_key == expected_pub_key, Error::<T>::BadOrigin);
+					match Self::ipfs_request(IpfsRequest::InsertPin(cid.clone(), false), deadline) {
+						// todo: create new error enum if this is the route i choose
+						Ok(IpfsResponse::Success) => {
+							log::info!("IPFS: Pinned CID {:?}", cid.clone());
+							// TODO: Call some extrinsic to report you have pinned
+							// the cid. 'submit_ipfs_pin_results'
+						},
+						Ok(_) => unreachable!("only Success can be a response for that request type"),
+						Err(e) => log::error!("IPFS: insert pin error: {:?}", e),
+					}
+				}
             }
         }
 
@@ -698,10 +759,8 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
 		// Remove any offline validators. This will only work when the runtime
 		// also has the im-online pallet.
 		Self::remove_offline_validators();
+		// Self::select_candidate_storage_providers();
 		log::debug!(target: LOG_TARGET, "New session called; updated validator set provided.");
-
-		// TODO: Need to verify that storage providers have data pinned...
-		
 		Some(Self::validators())
 	}
 

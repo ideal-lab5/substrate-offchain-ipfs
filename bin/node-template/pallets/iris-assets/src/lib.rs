@@ -64,8 +64,10 @@ use sp_std::{
 pub enum DataCommand<LookupSource, AssetId, Balance, AccountId> {
     /// (ipfs_address, cid, requesting node address, filename, asset id, balance)
     AddBytes(OpaqueMultiaddr, Vec<u8>, LookupSource, Vec<u8>, AssetId, Balance),
-    // /// owner, cid
-    CatBytes(AccountId, Vec<u8>, AccountId),
+    /// (owner, assetid, recipient)
+    CatBytes(AccountId, AssetId, AccountId),
+    /// (node, CID)
+    PinCID(AccountId, Vec<u8>),
 }
 
 #[derive(Encode, Decode, RuntimeDebug, Clone, Default, Eq, PartialEq, TypeInfo)]
@@ -142,6 +144,17 @@ pub mod pallet {
         ValueQuery
     >;
 
+    /// not readlly sure if this will stay forever, 
+    /// using this for now until I come up with an actual solution for
+    /// moving candidate storage providers map to the active storage providers map
+    #[pallet::storage]
+    #[pallet::getter(fn asset_ids)]
+    pub(super) type AssetIds<T: Config> = StorageValue<
+        _,
+        Vec<T::AssetId>,
+        ValueQuery,
+    >;
+
     /// Store the map associating owned CID to a specific asset ID
     ///
     /// asset_admin_accountid -> CID -> asset id
@@ -152,8 +165,8 @@ pub mod pallet {
         Blake2_128Concat,
         T::AccountId,
         Blake2_128Concat,
-        Vec<u8>,
         T::AssetId,
+        Vec<u8>,
         ValueQuery,
     >;
 
@@ -182,18 +195,6 @@ pub mod pallet {
         ValueQuery,
     >;
 
-    #[pallet::storage]
-    #[pallet::getter(fn storage_pool_config)]
-    pub(super) type StoragePoolConfig<T: Config> = StorageDoubleMap<
-        _,
-        Blake2_128Concat,
-        T::AccountId,
-        Blake2_128Concat,
-        T::AssetId,
-        StoragePool<T::AccountId>,
-        ValueQuery,
-    >;
-
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
@@ -209,8 +210,6 @@ pub mod pallet {
         DataReady(T::AccountId),
         /// A node has published ipfs identity results on chain
         PublishedIdentity(T::AccountId),
-        /// a storage pool was configured succesfully for some asset class
-        StoragePoolConfigurationSuccess(T::AccountId, T::AssetId),
 	}
 
 	#[pallet::error]
@@ -246,26 +245,6 @@ pub mod pallet {
             }
 
             0
-        }
-        fn offchain_worker(block_number: T::BlockNumber) {
-            // // every 5 blocks
-            // if block_number % 5u32.into() == 0u32.into() {
-            //     if let Err(e) = Self::connection_housekeeping() {
-            //         log::error!("IPFS: Encountered an error while processing data requests: {:?}", e);
-            //     }
-            // }    
-
-            // // handle data requests each block
-            // if let Err(e) = Self::handle_data_requests() {
-            //     log::error!("IPFS: Encountered an error while processing data requests: {:?}", e);
-            // }
-
-            // // every 5 blocks
-            // if block_number % 5u32.into() == 0u32.into() {
-            //     if let Err(e) = Self::print_metadata() {
-            //         log::error!("IPFS: Encountered an error while obtaining metadata: {:?}", e);
-            //     }
-            // }
         }
     }
 
@@ -315,7 +294,7 @@ pub mod pallet {
         pub fn request_data(
             origin: OriginFor<T>,
             owner: <T::Lookup as StaticLookup>::Source,
-            cid: Vec<u8>,
+            asset_id: T::AssetId,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             let owner_account = T::Lookup::lookup(owner)?;
@@ -323,7 +302,7 @@ pub mod pallet {
             <DataQueue<T>>::mutate(
                 |queue| queue.push(DataCommand::CatBytes(
                     owner_account.clone(),
-                    cid.clone(),
+                    asset_id.clone(),
                     who.clone(),
                 )
             ));
@@ -360,48 +339,13 @@ pub mod pallet {
                 .map_err(|_| Error::<T>::CantCreateAssetClass)?;
             
             let which_admin = T::Lookup::lookup(admin.clone())?;
-            <AssetClassOwnership<T>>::insert(which_admin, cid.clone(), id.clone());
+            <AssetClassOwnership<T>>::insert(which_admin, id.clone(), cid.clone());
+            <AssetIds<T>>::mutate(|ids| ids.push(id.clone()));
             
             Self::deposit_event(Event::AssetClassCreated(id.clone()));
             
             Ok(())
         }
-
-        // /// Should only be callable by OCWs (TODO)
-        // /// Submit the results of an `ipfs identity` call to be stored on chain
-        // ///
-        // /// * origin: a validator node
-        // /// * public_key: The IPFS node's public key
-        // /// * multiaddresses: A vector of multiaddresses associate with the public key
-        // ///
-        // #[pallet::weight(0)]
-        // pub fn submit_ipfs_identity(
-        //     origin: OriginFor<T>,
-        //     public_key: Vec<u8>,
-        //     multiaddresses: Vec<OpaqueMultiaddr>,
-        // ) -> DispatchResult {
-        //     let who = ensure_signed(origin)?;
-        //     <BootstrapNodes::<T>>::insert(public_key.clone(), multiaddresses.clone());
-        //     Self::deposit_event(Event::PublishedIdentity(who.clone()));
-        //     Ok(())
-        // }
-
-        // /// Should only be callable by OCWs (TODO)
-        // /// Submit the results onchain to notify a beneficiary that their data is available: TODO: how to safely share host? spam protection on rpc endpoints?
-        // ///
-        // /// * `beneficiary`: The account that requested the data
-        // /// * `host`: The node's host where the data has been made available (RPC endpoint)
-        // ///
-        // #[pallet::weight(0)]
-        // pub fn submit_rpc_ready(
-        //     origin: OriginFor<T>,
-        //     beneficiary: T::AccountId,
-        //     // host: Vec<u8>,
-        // ) -> DispatchResult {
-        //     ensure_signed(origin)?;
-        //     Self::deposit_event(Event::DataReady(beneficiary));
-        //     Ok(())
-        // }
 
         /// Only callable by the owner of the asset class 
         /// mint a static number of assets (tickets) for some asset class
@@ -415,19 +359,19 @@ pub mod pallet {
         pub fn mint_tickets(
             origin: OriginFor<T>,
             beneficiary: <T::Lookup as StaticLookup>::Source,
-            cid: Vec<u8>,
+            asset_id: T::AssetId,
             #[pallet::compact] amount: T::Balance,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             let new_origin = system::RawOrigin::Signed(who.clone()).into();
             let beneficiary_accountid = T::Lookup::lookup(beneficiary.clone())?;
 
-            ensure!(AssetClassOwnership::<T>::contains_key(who.clone(), cid.clone()), Error::<T>::NoSuchOwnedContent);
+            ensure!(AssetClassOwnership::<T>::contains_key(who.clone(), asset_id.clone()), Error::<T>::NoSuchOwnedContent);
             
-            let asset_id = AssetClassOwnership::<T>::get(who.clone(), cid.clone(),);
+            // let asset_id = AssetClassOwnership::<T>::get(who.clone(), cid.clone(),);
             <pallet_assets::Pallet<T>>::mint(new_origin, asset_id.clone(), beneficiary.clone(), amount)
                 .map_err(|_| Error::<T>::CantMintAssets)?;
-            
+            let cid = <AssetClassOwnership::<T>>::get(who.clone(), asset_id.clone());
             <AssetAccess<T>>::insert(beneficiary_accountid.clone(), cid.clone(), who.clone());
         
             Self::deposit_event(Event::AssetCreated(asset_id.clone()));
@@ -435,58 +379,28 @@ pub mod pallet {
         }
 
         #[pallet::weight(0)]
-        pub fn configure_storage_pool(
+        pub fn insert_pin_request(
             origin: OriginFor<T>,
+            asset_owner: T::AccountId,
             asset_id: T::AssetId,
-            max_redundancy: u32,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            // TODO: Ensure asset is owned by origin -> maybe restructure runtime storage?
-            let new_sp_config = StoragePool {
-                max_redundancy: max_redundancy,
-                candidate_storage_providers: Vec::new(),
-                current_session_storage_providers: Vec::new(),
-                owner: who.clone(),
-            };
-            <StoragePoolConfig::<T>>::insert(who.clone(), asset_id.clone(), new_sp_config);
-            Self::deposit_event(
-                Event::StoragePoolConfigurationSuccess(
-                    who.clone(), asset_id.clone()));
-            Ok(())
-        }
-
-        #[pallet::weight(0)]
-        pub fn try_add_candidate_storage_provider(
-            origin: OriginFor<T>,
-            pool_owner: T::AccountId,
-            pool_id: T::AssetId,
-        ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-            
-            Self::do_add_candidate_storage_provider(
-                pool_owner.clone(), pool_id.clone(), who.clone()
+            ensure!(<AssetClassOwnership<T>>::contains_key(asset_owner.clone(), asset_id.clone()), Error::<T>::NoSuchOwnedContent);
+            let cid = <AssetClassOwnership<T>>::get(
+                asset_owner.clone(), 
+                asset_id.clone(),
             );
-
+            <DataQueue<T>>::mutate(
+                |queue| queue.push(DataCommand::PinCID(
+                    who.clone(),
+                    cid.clone(),
+                )));
             Ok(())
         }
+
 	}
 }
 
 impl<T: Config> Pallet<T> {
-
-    fn do_add_candidate_storage_provider(
-        pool_admin: T::AccountId,
-        pool_id: T::AssetId,
-        candidate_storage_provider: T::AccountId,
-    ) -> Result<(), Error<T>> {
-        let mut sp = StoragePoolConfig::<T>::get(pool_admin.clone(), pool_id.clone());
-        // TODO: check duplicates
-        sp.candidate_storage_providers.push(candidate_storage_provider);
-        <StoragePoolConfig::<T>>::insert(
-            pool_admin.clone(), pool_id.clone(), sp
-        );
-
-        Ok(())
-    }
 
 }
