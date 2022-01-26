@@ -518,12 +518,17 @@ impl<T: Config> Pallet<T> {
 	fn select_candidate_storage_providers() {
 		// TODO: for now, we will just copy the candidates to the active providers map
 		// no real selection is happening yet, just doing this to get it in place for now
+		// iterate over asset ids
+		// if there are candidate storage providers => for each candidate that pinned the file, move them to storage providers
 		for assetid in <pallet_iris_assets::Pallet<T>>::asset_ids().into_iter() {
 			// if there are candidates for the asset id
 			if <CandidateStorageProviders<T>>::contains_key(assetid.clone()) {
 				let candidates = <CandidateStorageProviders<T>>::get(assetid.clone());
-				// need to only move candidates that have actually proved they pinned the content
-				<StorageProviders::<T>>::insert(assetid.clone(), candidates);
+				let pinners = <Pinners<T>>::get(assetid.clone());
+				let pinner_candidate_intersection = 
+					candidates.into_iter().filter(|c| pinners.contains(c)).collect::<Vec<T::AccountId>>();
+				// need to only move candidates that have actually proved they pinned the content	
+				<StorageProviders::<T>>::insert(assetid.clone(), pinner_candidate_intersection);
 			} 
 		}
 	}
