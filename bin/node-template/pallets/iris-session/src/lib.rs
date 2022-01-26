@@ -235,23 +235,25 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn offchain_worker(block_number: T::BlockNumber) {
-			// every 5 blocks
-            if block_number % 5u32.into() == 0u32.into() {
-                if let Err(e) = Self::connection_housekeeping() {
-                    log::error!("IPFS: Encountered an error while processing data requests: {:?}", e);
-                }
-            }
-			// handle data requests each block
-            if let Err(e) = Self::handle_data_requests() {
-                log::error!("IPFS: Encountered an error while processing data requests: {:?}", e);
-            }
+			if sp_io::offchain::is_validator() {
+				// every 5 blocks
+				if block_number % 5u32.into() == 0u32.into() {
+					if let Err(e) = Self::connection_housekeeping() {
+						log::error!("IPFS: Encountered an error while processing data requests: {:?}", e);
+					}
+				}
+				// handle data requests each block
+				if let Err(e) = Self::handle_data_requests() {
+					log::error!("IPFS: Encountered an error while processing data requests: {:?}", e);
+				}
 
-            // every 5 blocks
-            if block_number % 5u32.into() == 0u32.into() {
-                if let Err(e) = Self::print_metadata() {
-                    log::error!("IPFS: Encountered an error while obtaining metadata: {:?}", e);
-                }
-            }
+				// every 5 blocks
+				if block_number % 5u32.into() == 0u32.into() {
+					if let Err(e) = Self::print_metadata() {
+						log::error!("IPFS: Encountered an error while obtaining metadata: {:?}", e);
+					}
+				}
+			}
 		}
 	}
 
@@ -697,6 +699,7 @@ impl<T: Config> Pallet<T> {
                     }
                 },
                 DataCommand::CatBytes(owner, asset_id, recipient) => {
+					// TODO: Could potentially remove the owner here by restructuring runtime storage -> would need unique asset ids
 					if let cid = <pallet_iris_assets::Pallet<T>>::asset_class_ownership(
 						owner.clone(), asset_id.clone()
 					) {
