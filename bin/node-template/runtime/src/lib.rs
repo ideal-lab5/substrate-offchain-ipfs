@@ -599,11 +599,9 @@ impl_runtime_apis! {
 	*/
 	impl pallet_iris_rpc_runtime_api::IrisApi<Block> for Runtime {
 		fn retrieve_bytes(
-			public_key: Bytes,
-			signature: Bytes,
 			message: Bytes
 		) -> Bytes {
-			IrisSession::retrieve_bytes(public_key, signature, message)
+			IrisSession::retrieve_bytes(message)
 		}
 	}
 

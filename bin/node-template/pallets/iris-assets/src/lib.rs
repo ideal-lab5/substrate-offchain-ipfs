@@ -4,7 +4,6 @@
 //!
 //!
 //! ## Overview
-//! Disclaimer: This pallet is in the tadpole state
 //!
 //! ### Goals
 //! The Iris module provides functionality for creation and management of storage assets and access management
@@ -13,13 +12,8 @@
 //!
 //! #### Permissionless functions
 //! * create_storage_asset
-//! * request_data
 //!
 //! #### Permissioned Functions
-//! * submit_ipfs_add_results
-//! * submit_ipfs_identity
-//! * submit_rpc_ready
-//! * destroy_ticket
 //! * mint_tickets
 //!
 
@@ -64,18 +58,10 @@ use sp_std::{
 pub enum DataCommand<LookupSource, AssetId, Balance, AccountId> {
     /// (ipfs_address, cid, requesting node address, filename, asset id, balance)
     AddBytes(OpaqueMultiaddr, Vec<u8>, LookupSource, Vec<u8>, AssetId, Balance),
-    /// (owner, assetid, recipient)
-    CatBytes(AccountId, AssetId, AccountId),
+    /// (requestor, owner, assetid)
+    CatBytes(AccountId, AccountId, AssetId),
     /// (node, assetid, CID)
     PinCID(AccountId, AssetId, Vec<u8>),
-}
-
-#[derive(Encode, Decode, RuntimeDebug, Clone, Default, Eq, PartialEq, TypeInfo)]
-pub struct StoragePool<AccountId> {
-    max_redundancy: u32,
-    candidate_storage_providers: Vec<AccountId>,
-    current_session_storage_providers: Vec<AccountId>,
-    owner: AccountId,
 }
 
 pub use pallet::*;
@@ -118,18 +104,6 @@ pub mod pallet {
 	#[pallet::generate_store(pub(super) trait Store)]
 	pub struct Pallet<T>(_);
 
-    /// map the ipfs public key to a list of multiaddresses
-    /// this could be moved to the session pallet
-    #[pallet::storage]
-    #[pallet::getter(fn bootstrap_nodes)]
-    pub(super) type BootstrapNodes<T: Config> = StorageMap<
-        _,
-        Blake2_128Concat,
-        Vec<u8>,
-        Vec<OpaqueMultiaddr>,
-        ValueQuery,
-    >;
-
     /// A queue of data to publish or obtain on IPFS.
 	#[pallet::storage]
     #[pallet::getter(fn data_queue)]
@@ -144,9 +118,9 @@ pub mod pallet {
         ValueQuery
     >;
 
-    /// not readlly sure if this will stay forever, 
-    /// using this for now until I come up with an actual solution for
-    /// moving candidate storage providers map to the active storage providers map
+    /// A collection of asset ids
+    /// TODO: currently allows customized asset ids but in the future
+    /// we can use this to dynamically generate unique asset ids for content
     #[pallet::storage]
     #[pallet::getter(fn asset_ids)]
     pub(super) type AssetIds<T: Config> = StorageValue<
@@ -170,17 +144,7 @@ pub mod pallet {
         ValueQuery,
     >;
 
-    // /// maps an asset id to a CID
-    // #[pallet::storage]
-    // #[pallet::getter(fn asset_class_config)]
-    // pub(super) type AssetClassConfig<T: Config> = StorageMap<
-    //     _,
-    //     Blake2_128Concat,
-    //     T::AssetId,
-    //     Vec<u8>,
-    // >;
-
-    /// Store the map associated a node with the assets to which they have access
+    /// Store the map associating a node with the assets to which they have access
     ///
     /// asset_owner_accountid -> CID -> asset_class_owner_accountid
     #[pallet::storage]
@@ -190,7 +154,7 @@ pub mod pallet {
         Blake2_128Concat,
         T::AccountId,
         Blake2_128Concat,
-        Vec<u8>,
+        T::AssetId,
         T::AccountId,
         ValueQuery,
     >;
@@ -285,32 +249,52 @@ pub mod pallet {
 			Ok(())
         }
 
-        /// Queue a request to retrieve data behind some owned CID from the IPFS network
+        /// Only callable by the owner of the asset class 
+        /// mint a static number of assets (tickets) for some asset class
         ///
-        /// * owner: The owner node
-        /// * cid: the cid to which you are requesting access
+        /// * origin: should be the owner of the asset class
+        /// * beneficiary: the address to which the newly minted assets are assigned
+        /// * cid: a cid owned by the origin, for which an asset class exists
+        /// * amount: the number of tickets to mint
         ///
-		#[pallet::weight(0)]
-        pub fn request_data(
+        #[pallet::weight(0)]
+        pub fn mint_tickets(
             origin: OriginFor<T>,
-            owner: <T::Lookup as StaticLookup>::Source,
+            beneficiary: <T::Lookup as StaticLookup>::Source,
             asset_id: T::AssetId,
+            #[pallet::compact] amount: T::Balance,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            let owner_account = T::Lookup::lookup(owner)?;
+            ensure!(AssetClassOwnership::<T>::contains_key(who.clone(), asset_id.clone()), Error::<T>::NoSuchOwnedContent);
 
-            <DataQueue<T>>::mutate(
-                |queue| queue.push(DataCommand::CatBytes(
-                    owner_account.clone(),
-                    asset_id.clone(),
-                    who.clone(),
-                )
-            ));
-
-            Self::deposit_event(Event::QueuedDataToCat(who.clone()));
-            
+            let new_origin = system::RawOrigin::Signed(who.clone()).into();
+            let beneficiary_accountid = T::Lookup::lookup(beneficiary.clone())?;            
+            // let asset_id = AssetClassOwnership::<T>::get(who.clone(), cid.clone(),);
+            <pallet_assets::Pallet<T>>::mint(new_origin, asset_id.clone(), beneficiary.clone(), amount)
+                .map_err(|_| Error::<T>::CantMintAssets)?;
+            <AssetAccess<T>>::insert(beneficiary_accountid.clone(), asset_id.clone(), who.clone());
+        
+            Self::deposit_event(Event::AssetCreated(asset_id.clone()));
             Ok(())
         }
+
+        
+		#[pallet::weight(0)]
+		pub fn request_bytes(
+			origin: OriginFor<T>,
+			owner: <T::Lookup as StaticLookup>::Source,
+			asset_id: T::AssetId,
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+            let owner_account = T::Lookup::lookup(owner)?;
+            <DataQueue<T>>::mutate(
+                |queue| queue.push(DataCommand::CatBytes(
+                    who.clone(),
+                    owner_account.clone(),
+                    asset_id.clone(),
+                )));
+			Ok(())
+		}
 
         /// should only be called by offchain workers... how to ensure this?
         /// submits IPFS results on chain and creates new ticket config in runtime storage
@@ -328,10 +312,6 @@ pub mod pallet {
             id: T::AssetId,
             balance: T::Balance,
         ) -> DispatchResult {
-            // DANGER: This can currently be called by anyone, not just an OCW.
-            // if we send an unsigned transaction then we can ensure there is no origin
-            // however, the call to create the asset requires an origin, which is a little problematic
-            // ensure_none(origin)?;
             let who = ensure_signed(origin)?;
             let new_origin = system::RawOrigin::Signed(who).into();
 
@@ -347,37 +327,11 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Only callable by the owner of the asset class 
-        /// mint a static number of assets (tickets) for some asset class
+        /// Add a request to pin a cid to the DataQueue for your embedded IPFS node
+        /// 
+        /// * asset_owner: The owner of the asset class
+        /// * asset_id: The asset id of some asset class
         ///
-        /// * origin: should be the owner of the asset class
-        /// * beneficiary: the address to which the newly minted assets are assigned
-        /// * cid: a cid owned by the origin, for which an asset class exists
-        /// * amount: the number of tickets to mint
-        ///
-        #[pallet::weight(0)]
-        pub fn mint_tickets(
-            origin: OriginFor<T>,
-            beneficiary: <T::Lookup as StaticLookup>::Source,
-            asset_id: T::AssetId,
-            #[pallet::compact] amount: T::Balance,
-        ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-            let new_origin = system::RawOrigin::Signed(who.clone()).into();
-            let beneficiary_accountid = T::Lookup::lookup(beneficiary.clone())?;
-
-            ensure!(AssetClassOwnership::<T>::contains_key(who.clone(), asset_id.clone()), Error::<T>::NoSuchOwnedContent);
-            
-            // let asset_id = AssetClassOwnership::<T>::get(who.clone(), cid.clone(),);
-            <pallet_assets::Pallet<T>>::mint(new_origin, asset_id.clone(), beneficiary.clone(), amount)
-                .map_err(|_| Error::<T>::CantMintAssets)?;
-            let cid = <AssetClassOwnership::<T>>::get(who.clone(), asset_id.clone());
-            <AssetAccess<T>>::insert(beneficiary_accountid.clone(), cid.clone(), who.clone());
-        
-            Self::deposit_event(Event::AssetCreated(asset_id.clone()));
-            Ok(())
-        }
-
         #[pallet::weight(0)]
         pub fn insert_pin_request(
             origin: OriginFor<T>,

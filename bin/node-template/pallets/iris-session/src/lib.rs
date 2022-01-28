@@ -235,23 +235,21 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn offchain_worker(block_number: T::BlockNumber) {
-			if sp_io::offchain::is_validator() {
-				// every 5 blocks
-				if block_number % 5u32.into() == 0u32.into() {
-					if let Err(e) = Self::connection_housekeeping() {
-						log::error!("IPFS: Encountered an error while processing data requests: {:?}", e);
-					}
-				}
-				// handle data requests each block
-				if let Err(e) = Self::handle_data_requests() {
+			// every 5 blocks
+			if block_number % 5u32.into() == 0u32.into() {
+				if let Err(e) = Self::connection_housekeeping() {
 					log::error!("IPFS: Encountered an error while processing data requests: {:?}", e);
 				}
+			}
+			// handle data requests each block
+			if let Err(e) = Self::handle_data_requests() {
+				log::error!("IPFS: Encountered an error while processing data requests: {:?}", e);
+			}
 
-				// every 5 blocks
-				if block_number % 5u32.into() == 0u32.into() {
-					if let Err(e) = Self::print_metadata() {
-						log::error!("IPFS: Encountered an error while obtaining metadata: {:?}", e);
-					}
+			// every 5 blocks
+			if block_number % 5u32.into() == 0u32.into() {
+				if let Err(e) = Self::print_metadata() {
+					log::error!("IPFS: Encountered an error while obtaining metadata: {:?}", e);
 				}
 			}
 		}
@@ -333,7 +331,7 @@ pub mod pallet {
 		}
 
 		#[pallet::weight(0)]
-		pub fn request_join_storage_pool(
+		pub fn request_store_content(
 			origin: OriginFor<T>,
 			pool_owner: <T::Lookup as StaticLookup>::Source,
 			pool_id: T::AssetId,
@@ -535,24 +533,21 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
-	/// implementation for RPC runtime aPI to retrieve bytes from the node's local storage
+	/// implementation for RPC runtime API to retrieve bytes from the node's local storage
     /// 
     /// * public_key: The account's public key as bytes
     /// * signature: The signer's signature as bytes
     /// * message: The signed message as bytes
     ///
     pub fn retrieve_bytes(
-        _public_key: Bytes,
-		_signature: Bytes,
 		message: Bytes,
     ) -> Bytes {
-        // TODO: Verify signature, update offchain storage keys...
         let message_vec: Vec<u8> = message.to_vec();
-        if let Some(data) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &message_vec) {
-            Bytes(data.clone())
-        } else {
-            Bytes(Vec::new())
-        }
+		if let Some(data) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &message_vec) {
+			Bytes(data.clone())
+		} else {
+			Bytes(Vec::new())
+		}
     }
 	
 	 /// send a request to the local IPFS node; can only be called be an off-chain worker
@@ -638,125 +633,138 @@ impl<T: Config> Pallet<T> {
     }
 
 	/// process any requests in the DataQueue
+	/// TODO: This needs some *major* refactoring
     fn handle_data_requests() -> Result<(), Error<T>> {
-        let data_queue = <pallet_iris_assets::Pallet<T>>::data_queue();
-        let len = data_queue.len();
-        if len != 0 {
-            log::info!("IPFS: {} entr{} in the data queue", len, if len == 1 { "y" } else { "ies" });
-        }
-        // TODO: Needs refactoring
-        let deadline = Some(timestamp().add(Duration::from_millis(5_000)));
-        for cmd in data_queue.into_iter() {
-            match cmd {
-                DataCommand::AddBytes(addr, cid, admin, _name, id, balance) => {
-                    Self::ipfs_request(IpfsRequest::Connect(addr.clone()), deadline)?;
-                    log::info!(
-                        "IPFS: connected to {}",
-                        str::from_utf8(&addr.0).expect("our own calls can be trusted to be UTF-8; qed")
-                    );
-                    match Self::ipfs_request(IpfsRequest::CatBytes(cid.clone()), deadline) {
-                        Ok(IpfsResponse::CatBytes(data)) => {
-                            log::info!("IPFS: fetched data");
-                            Self::ipfs_request(IpfsRequest::Disconnect(addr.clone()), deadline)?;
-                            log::info!(
-                                "IPFS: disconnected from {}",
-                                str::from_utf8(&addr.0).expect("our own calls can be trusted to be UTF-8; qed")
-                            );
-                            match Self::ipfs_request(IpfsRequest::AddBytes(data.clone()), deadline) {
-                                Ok(IpfsResponse::AddBytes(new_cid)) => {
-                                    log::info!(
-                                        "IPFS: added data with Cid {}",
-                                        str::from_utf8(&new_cid).expect("our own IPFS node can be trusted here; qed")
-                                    );
-                                    let signer = Signer::<T, T::AuthorityId>::all_accounts();
-                                    if !signer.can_sign() {
-                                        log::error!(
-                                            "No local accounts available. Consider adding one via `author_insertKey` RPC.",
-                                        );
-                                    }
-                                    let results = signer.send_signed_transaction(|_account| { 
-                                        Call::submit_ipfs_add_results{
-                                            admin: admin.clone(),
-                                            cid: new_cid.clone(),
-                                            id: id.clone(),
-                                            balance: balance.clone(),
-                                        }
-                                     });
-                            
-                                    for (_, res) in &results {
-                                        match res {
-                                            Ok(()) => log::info!("Submitted ipfs results"),
-                                            Err(e) => log::error!("Failed to submit transaction: {:?}",  e),
-                                        }
-                                    }
-                                },
-                                Ok(_) => unreachable!("only AddBytes can be a response for that request type."),
-                                Err(e) => log::error!("IPFS: add error: {:?}", e),
-                            }
-                        },
-                        Ok(_) => unreachable!("only CatBytes can be a response for that request type."),
-                        Err(e) => log::error!("IPFS: cat error: {:?}", e),
-                    }
-                },
-                DataCommand::CatBytes(owner, asset_id, recipient) => {
-					// TODO: Could potentially remove the owner here by restructuring runtime storage -> would need unique asset ids
-					if let cid = <pallet_iris_assets::Pallet<T>>::asset_class_ownership(
-						owner.clone(), asset_id.clone()
-					) {
-						let balance = <pallet_assets::Pallet<T>>::balance(asset_id.clone(), recipient.clone());
-						let balance_primitive = TryInto::<u64>::try_into(balance).ok();
-					
-						ensure!(balance_primitive != Some(0), Error::<T>::InsufficientBalance);
+		if sp_io::offchain::is_validator() {
+			let data_queue = <pallet_iris_assets::Pallet<T>>::data_queue();
+			let len = data_queue.len();
+			if len != 0 {
+				log::info!("IPFS: {} entr{} in the data queue", len, if len == 1 { "y" } else { "ies" });
+			}
+			// TODO: Needs refactoring
+			let deadline = Some(timestamp().add(Duration::from_millis(5_000)));
+			for cmd in data_queue.into_iter() {
+				match cmd {
+					DataCommand::AddBytes(addr, cid, admin, _name, id, balance) => {
+						Self::ipfs_request(IpfsRequest::Connect(addr.clone()), deadline)?;
+						log::info!(
+							"IPFS: connected to {}",
+							str::from_utf8(&addr.0).expect("our own calls can be trusted to be UTF-8; qed")
+						);
 						match Self::ipfs_request(IpfsRequest::CatBytes(cid.clone()), deadline) {
 							Ok(IpfsResponse::CatBytes(data)) => {
-								log::info!("IPFS: Fetched data from IPFS.");
-								// add to offchain index
-								sp_io::offchain::local_storage_set(
-									StorageKind::PERSISTENT,
-									&cid,
-									&data,
+								log::info!("IPFS: fetched data");
+								Self::ipfs_request(IpfsRequest::Disconnect(addr.clone()), deadline)?;
+								log::info!(
+									"IPFS: disconnected from {}",
+									str::from_utf8(&addr.0).expect("our own calls can be trusted to be UTF-8; qed")
 								);
-								let signer = Signer::<T, T::AuthorityId>::all_accounts();
-								if !signer.can_sign() {
-									log::error!(
-										"No local accounts available. Consider adding one via `author_insertKey` RPC.",
-									);
-								}
-								let results = signer.send_signed_transaction(|_account| { 
-									Call::submit_rpc_ready {
-										beneficiary: recipient.clone(),
-									}
-								});
-						
-								for (_, res) in &results {
-									match res {
-										Ok(()) => log::info!("Submitted ipfs results"),
-										Err(e) => log::error!("Failed to submit transaction: {:?}",  e),
-									}
+								match Self::ipfs_request(IpfsRequest::AddBytes(data.clone()), deadline) {
+									Ok(IpfsResponse::AddBytes(new_cid)) => {
+										log::info!(
+											"IPFS: added data with Cid {}",
+											str::from_utf8(&new_cid).expect("our own IPFS node can be trusted here; qed")
+										);
+										let signer = Signer::<T, T::AuthorityId>::all_accounts();
+										if !signer.can_sign() {
+											log::error!(
+												"No local accounts available. Consider adding one via `author_insertKey` RPC.",
+											);
+										}
+										let results = signer.send_signed_transaction(|_account| { 
+											Call::submit_ipfs_add_results{
+												admin: admin.clone(),
+												cid: new_cid.clone(),
+												id: id.clone(),
+												balance: balance.clone(),
+											}
+										});
+								
+										for (_, res) in &results {
+											match res {
+												Ok(()) => log::info!("Submitted ipfs results"),
+												Err(e) => log::error!("Failed to submit transaction: {:?}",  e),
+											}
+										}
+									},
+									Ok(_) => unreachable!("only AddBytes can be a response for that request type."),
+									Err(e) => log::error!("IPFS: add error: {:?}", e),
 								}
 							},
 							Ok(_) => unreachable!("only CatBytes can be a response for that request type."),
 							Err(e) => log::error!("IPFS: cat error: {:?}", e),
 						}
-					} else {
-						log::error!("the provided owner/cid does not map to a valid asset id: {:?}, {:?}", owner, asset_id)
-					}
-                },
-				DataCommand::PinCID(acct, asset_id, cid) => {
-					let (public_key, addrs) = 
-						if let IpfsResponse::Identity(public_key, addrs) = 
-							Self::ipfs_request(IpfsRequest::Identity, deadline)? {
-						(public_key, addrs)
-					} else {
-						unreachable!("only `Identity` is a valid response type.");
-					};
-					let expected_pub_key = <SubstrateIpfsBridge::<T>>::get(acct);
-					// todo: create new error enum if this is the route i choose
-					ensure!(public_key == expected_pub_key, Error::<T>::BadOrigin);
-					match Self::ipfs_request(IpfsRequest::InsertPin(cid.clone(), false), deadline) {
-						Ok(IpfsResponse::Success) => {
-							log::info!("IPFS: Pinned CID {:?}", cid.clone());
-							let signer = Signer::<T, T::AuthorityId>::all_accounts();
+					},
+					DataCommand::CatBytes(requestor, owner, asset_id) => {
+						let (public_key, addrs) = 
+							if let IpfsResponse::Identity(public_key, addrs) = 
+								Self::ipfs_request(IpfsRequest::Identity, deadline)? {
+							(public_key, addrs)
+						} else {
+							unreachable!("only `Identity` is a valid response type.");
+						};
+						let expected_pub_key = <SubstrateIpfsBridge::<T>>::get(requestor.clone());
+						// todo: create new error enum if this is the route i choose
+						ensure!(public_key == expected_pub_key, Error::<T>::BadOrigin);
+
+						if let cid = <pallet_iris_assets::Pallet<T>>::asset_class_ownership(
+							owner.clone(), asset_id.clone()
+						) {	
+							ensure!(
+								owner.clone() == <pallet_iris_assets::Pallet<T>>::asset_access(requestor.clone(), asset_id.clone()),
+								Error::<T>::InsufficientBalance
+							);
+							match Self::ipfs_request(IpfsRequest::CatBytes(cid.clone()), deadline) {
+								Ok(IpfsResponse::CatBytes(data)) => {
+									log::info!("IPFS: Fetched data from IPFS.");
+									// add to offchain index
+									sp_io::offchain::local_storage_set(
+										StorageKind::PERSISTENT,
+										&cid,
+										&data,
+									);
+									
+									let signer = Signer::<T, T::AuthorityId>::all_accounts();
+									if !signer.can_sign() {
+										log::error!(
+											"No local accounts available. Consider adding one via `author_insertKey` RPC.",
+										);
+									}
+									let results = signer.send_signed_transaction(|_account| { 
+										Call::submit_rpc_ready {
+											beneficiary: requestor.clone(),
+										}
+									});
+							
+									for (_, res) in &results {
+										match res {
+											Ok(()) => log::info!("Submitted ipfs results"),
+											Err(e) => log::error!("Failed to submit transaction: {:?}",  e),
+										}
+									}
+								},
+								Ok(_) => unreachable!("only CatBytes can be a response for that request type."),
+								Err(e) => log::error!("IPFS: cat error: {:?}", e),
+							}
+						} else {
+							log::error!("the provided owner/cid does not map to a valid asset id: {:?}, {:?}", owner, asset_id)
+						}
+					},
+					DataCommand::PinCID(acct, asset_id, cid) => {
+						let (public_key, addrs) = 
+							if let IpfsResponse::Identity(public_key, addrs) = 
+								Self::ipfs_request(IpfsRequest::Identity, deadline)? {
+							(public_key, addrs)
+						} else {
+							unreachable!("only `Identity` is a valid response type.");
+						};
+						let expected_pub_key = <SubstrateIpfsBridge::<T>>::get(acct);
+						// todo: create new error enum if this is the route i choose
+						ensure!(public_key == expected_pub_key, Error::<T>::BadOrigin);
+						match Self::ipfs_request(IpfsRequest::InsertPin(cid.clone(), false), deadline) {
+							Ok(IpfsResponse::Success) => {
+								log::info!("IPFS: Pinned CID {:?}", cid.clone());
+								let signer = Signer::<T, T::AuthorityId>::all_accounts();
 								if !signer.can_sign() {
 									log::error!(
 										"No local accounts available. Consider adding one via `author_insertKey` RPC.",
@@ -774,13 +782,14 @@ impl<T: Config> Pallet<T> {
 										Err(e) => log::error!("Failed to submit transaction: {:?}",  e),
 									}
 								}
-						},
-						Ok(_) => unreachable!("only Success can be a response for that request type"),
-						Err(e) => log::error!("IPFS: insert pin error: {:?}", e),
+							},
+							Ok(_) => unreachable!("only Success can be a response for that request type"),
+							Err(e) => log::error!("IPFS: insert pin error: {:?}", e),
+						}
 					}
 				}
-            }
-        }
+			}
+		}
 
         Ok(())
     }
@@ -814,6 +823,7 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
 		// Remove any offline validators. This will only work when the runtime
 		// also has the im-online pallet.
 		Self::remove_offline_validators();
+		// TODO: Clear active storage providers here
 		Self::select_candidate_storage_providers();
 		log::debug!(target: LOG_TARGET, "New session called; updated validator set provided.");
 		Some(Self::validators())

@@ -16,8 +16,6 @@ pub trait IrisApi<BlockHash> {
 	#[rpc(name = "iris_retrieveBytes")]
 	fn retrieve_bytes(
 		&self,
-		public_key: Bytes,
-		signature: Bytes,
 		message: Bytes,
 		at: Option<BlockHash>,
 	) -> Result<Bytes>;
@@ -61,8 +59,6 @@ where
 {
 	fn retrieve_bytes(
 		&self,
-		public_key: Bytes,
-		signature: Bytes,
 		message: Bytes,
 		at: Option<<Block as BlockT>::Hash>,
 	) -> Result<Bytes> {
@@ -70,7 +66,7 @@ where
 		let at = BlockId::hash(at.unwrap_or_else(||
 			self.client.info().best_hash
 		));
-		let runtime_api_result = api.retrieve_bytes(&at, public_key, signature, message);
+		let runtime_api_result = api.retrieve_bytes(&at, message);
 		runtime_api_result.map_err(|e| RpcError{
 			code: ErrorCode::ServerError(Error::DecodeError.into()),
 			message: "unable to query runtime api".into(),
