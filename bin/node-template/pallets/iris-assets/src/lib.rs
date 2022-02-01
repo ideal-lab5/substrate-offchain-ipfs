@@ -170,8 +170,6 @@ pub mod pallet {
         AssetClassCreated(T::AssetId),
         /// A new asset was created (tickets minted)
         AssetCreated(T::AssetId),
-        /// A node's request to access data via the RPC endpoint has been processed
-        DataReady(T::AccountId),
         /// A node has published ipfs identity results on chain
         PublishedIdentity(T::AccountId),
 	}

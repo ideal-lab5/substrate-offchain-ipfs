@@ -346,7 +346,7 @@ pub mod pallet {
 				sp.push(who.clone());
 			});
 			let owner = T::Lookup::lookup(pool_owner)?;
-			<pallet_iris_assets::Pallet<T>>::insert_pin_request(new_origin, owner, pool_id);
+			<pallet_iris_assets::Pallet<T>>::insert_pin_request(new_origin, owner, pool_id)?;
 			Self::deposit_event(Event::RequestJoinStoragePoolSuccess(who.clone(), pool_id.clone()));
 			Ok(())
 		}
@@ -704,7 +704,6 @@ impl<T: Config> Pallet<T> {
 							unreachable!("only `Identity` is a valid response type.");
 						};
 						let expected_pub_key = <SubstrateIpfsBridge::<T>>::get(requestor.clone());
-						// todo: create new error enum if this is the route i choose
 						ensure!(public_key == expected_pub_key, Error::<T>::BadOrigin);
 
 						if let cid = <pallet_iris_assets::Pallet<T>>::asset_class_ownership(
@@ -823,7 +822,6 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
 		// Remove any offline validators. This will only work when the runtime
 		// also has the im-online pallet.
 		Self::remove_offline_validators();
-		// TODO: Clear active storage providers here
 		Self::select_candidate_storage_providers();
 		log::debug!(target: LOG_TARGET, "New session called; updated validator set provided.");
 		Some(Self::validators())

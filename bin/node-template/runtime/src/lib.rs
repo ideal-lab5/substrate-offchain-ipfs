@@ -356,7 +356,6 @@ pub type SignedPayload = generic::SignedPayload<Call, SignedExtra>;
 impl pallet_iris_assets::Config for Runtime {
 	type Event = Event;
 	type Call = Call;
-	// type AuthorityId = pallet_iris_assets::crypto::TestAuthId;
 	type Currency = Balances;
 }
 

@@ -1,5 +1,5 @@
 #![cfg(test)]
-use crate::{self as pallet_iris, Config};
+use crate::{self as pallet_iris_assets, Config};
 use frame_support::{construct_runtime, parameter_types};
 use sp_core::{
 	Pair,
@@ -12,8 +12,6 @@ use sp_runtime::{
 	testing::{Header, TestXt},
 	traits::{BlakeTwo256, Extrinsic as ExtrinsicT, IdentityLookup, IdentifyAccount, Verify},
 };
-// use pallet_balances::Call as BalancesCall;
-// use pallet_assets;
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -28,7 +26,7 @@ construct_runtime!(
 		System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
 		Assets: pallet_assets::{Pallet, Storage, Event<T>},
-		Iris: pallet_iris::{Pallet, Call, Storage, Event<T>, ValidateUnsigned},
+		Iris: pallet_iris_assets::{Pallet, Call, Storage, Event<T>},
 	}
 );
 
@@ -62,6 +60,7 @@ impl frame_system::Config for Test {
 	type SS58Prefix = ();
 	type OnSetCode = ();
 }
+
 // SS58Prefix
 parameter_types! {
 	pub const ExistentialDeposit: u64 = 1;
@@ -103,42 +102,10 @@ impl pallet_assets::Config for Test {
 	type Extra = ();
 }
 
-type Extrinsic = TestXt<Call, ()>;
-type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
-
-impl frame_system::offchain::SigningTypes for Test {
-	type Public = <Signature as Verify>::Signer;
-	type Signature = Signature;
-}
-
-impl<LocalCall> frame_system::offchain::SendTransactionTypes<LocalCall> for Test
-where
-	Call: From<LocalCall>,
-{
-	type OverarchingCall = Call;
-	type Extrinsic = Extrinsic;
-}
-
-
-impl<LocalCall> frame_system::offchain::CreateSignedTransaction<LocalCall> for Test
-where
-	Call: From<LocalCall>,
-{
-	fn create_transaction<C: frame_system::offchain::AppCrypto<Self::Public, Self::Signature>>(
-		call: Call,
-		_public: <Signature as Verify>::Signer,
-		_account: AccountId,
-		nonce: u64,
-	) -> Option<(Call, <Extrinsic as ExtrinsicT>::SignaturePayload)> {
-		Some((call, (nonce, ())))
-	}
-}
-
 impl Config for Test {
 	type Currency = Balances;
 	type Call = Call;
 	type Event = Event;
-	type AuthorityId = pallet_iris::crypto::TestAuthId;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
