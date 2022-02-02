@@ -331,7 +331,7 @@ pub mod pallet {
 		}
 
 		#[pallet::weight(0)]
-		pub fn request_store_content(
+		pub fn join_storage_pool(
 			origin: OriginFor<T>,
 			pool_owner: <T::Lookup as StaticLookup>::Source,
 			pool_id: T::AssetId,

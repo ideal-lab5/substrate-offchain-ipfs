@@ -223,7 +223,7 @@ pub mod pallet {
         /// * `balance`: the balance the owner is willing to use to back the asset class which will be created
         ///
         #[pallet::weight(0)]
-        pub fn create_storage_asset(
+        pub fn create(
             origin: OriginFor<T>,
             admin: <T::Lookup as StaticLookup>::Source,
             addr: Vec<u8>,
@@ -256,7 +256,7 @@ pub mod pallet {
         /// * amount: the number of tickets to mint
         ///
         #[pallet::weight(0)]
-        pub fn mint_tickets(
+        pub fn mint(
             origin: OriginFor<T>,
             beneficiary: <T::Lookup as StaticLookup>::Source,
             asset_id: T::AssetId,
@@ -266,8 +266,7 @@ pub mod pallet {
             ensure!(AssetClassOwnership::<T>::contains_key(who.clone(), asset_id.clone()), Error::<T>::NoSuchOwnedContent);
 
             let new_origin = system::RawOrigin::Signed(who.clone()).into();
-            let beneficiary_accountid = T::Lookup::lookup(beneficiary.clone())?;            
-            // let asset_id = AssetClassOwnership::<T>::get(who.clone(), cid.clone(),);
+            let beneficiary_accountid = T::Lookup::lookup(beneficiary.clone())?;
             <pallet_assets::Pallet<T>>::mint(new_origin, asset_id.clone(), beneficiary.clone(), amount)
                 .map_err(|_| Error::<T>::CantMintAssets)?;
             <AssetAccess<T>>::insert(beneficiary_accountid.clone(), asset_id.clone(), who.clone());
