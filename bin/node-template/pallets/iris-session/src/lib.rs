@@ -1,5 +1,18 @@
 //! # Iris Session Pallet
 //!
+//! @author driemworks
+//! 
+//! ## Description 
+//! 
+//! validators and storage providers
+//! are treated as seprate roles, where you must first be a validator after which you can 
+//! request to join a storage pool for some asset id (become a storage provider). If the ipfs
+//! node has sufficient storage capacity to successfully pin the underlying CID of the asset class,
+//! then that node is considered a storage provider as long as it is online.
+//! 
+//! Temporaraily, this pallet is in a weird limbo between proof of authority and proof of stake
+//! without actually verifying any quantitative measure of storage capacity
+//! 
 //! The Iris Session Pallet allows addition and removal of
 //! storage providers via extrinsics (transaction calls), in
 //! Substrate-based PoA networks. It also integrates with the im-online pallet
@@ -10,6 +23,8 @@
 //! session pallet to automatically rotate sessions. For this reason, the
 //! validator addition and removal becomes effective only after 2 sessions
 //! (queuing + applying).
+//! 
+//! 
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -20,15 +35,17 @@ use frame_support::{
 	ensure,
 	pallet_prelude::*,
 	traits::{
-		EstimateNextSessionRotation, Get, ValidatorSet, ValidatorSetWithIdentification,
+		EstimateNextSessionRotation, Get,
+		ValidatorSet, ValidatorSetWithIdentification,
 	},
 };
 use log;
+use scale_info::TypeInfo;
 pub use pallet::*;
 use sp_runtime::traits::{Convert, Zero};
 use sp_staking::offence::{Offence, OffenceError, ReportOffence};
 use sp_std::{
-	collections::btree_set::BTreeSet,
+	collections::{ btree_set::BTreeSet, btree_map::BTreeMap },
 	convert::TryInto,
 	str,
 	vec::Vec,
@@ -59,7 +76,7 @@ use pallet_iris_assets::{
 };
 
 pub const LOG_TARGET: &'static str = "runtime::iris-session";
-// pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"iris");
+// TODO: should a new KeyTypeId be defined? e.g. b"iris"
 pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"aura");
 
 pub mod crypto {
@@ -88,6 +105,35 @@ pub mod crypto {
 	}
 }
 
+/// Counter for the number of eras that have passed.
+pub type EraIndex = u32;
+/// counter for the number of "reward" points earned by a given storage provider
+pub type RewardPoint = u32;
+
+/// Reward points for storage providers of some specific assest id during an era.
+#[derive(PartialEq, Encode, Decode, Default, RuntimeDebug, TypeInfo)]
+pub struct EraRewardPoints<AccountId> {
+	/// the total number of points
+	total: RewardPoint,
+	/// the reward points for individual validators (sum(i.rewardPoint in individual) = total)
+	individual: BTreeMap<AccountId, RewardPoint>,
+	/// the unallocated reward points are distributed evenly among storage providers
+	/// at the end of a session. These reward points are added when a consumer node
+	/// requests data from IPFS
+	unallocated: RewardPoint,
+}
+
+/// Information regarding the active era (era in used in session).
+#[derive(Encode, Decode, RuntimeDebug, TypeInfo)]
+pub struct ActiveEraInfo {
+	/// Index of era.
+	pub index: EraIndex,
+	/// Moment of start expressed as millisecond from `$UNIX_EPOCH`.
+	///
+	/// Start can be none if start hasn't been set for the era yet,
+	/// Start is set on the first on_finalize of the era to guarantee usage of `Time`.
+	start: Option<u64>,
+}
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -150,6 +196,7 @@ pub mod pallet {
 	/// Maps an asset id to a collection of nodes that want to provider storage
 	#[pallet::storage]
 	#[pallet::getter(fn candidate_storage_providers)]
+	// TODO: Change to QueuedStorageProviders
 	pub(super) type CandidateStorageProviders<T: Config> = StorageMap<
 		_,
 		Blake2_128Concat,
@@ -177,6 +224,37 @@ pub mod pallet {
 		Blake2_128Concat,
 		T::AssetId,
 		Vec<T::AccountId>,
+		ValueQuery,
+	>;
+
+	/// The current era index.
+	///
+	/// This is the latest planned era, depending on how the Session pallet queues the validator
+	/// set, it might be active or not.
+	#[pallet::storage]
+	#[pallet::getter(fn current_era)]
+	pub type CurrentEra<T> = StorageValue<_, EraIndex>;
+
+	/// The active era information, it holds index and start.
+	///
+	/// The active era is the era being currently rewarded. Validator set of this era must be
+	/// equal to [`SessionInterface::validators`].
+	#[pallet::storage]
+	#[pallet::getter(fn active_era)]
+	// TODO: Do I need the ActiveEraInfo?
+	pub type ActiveEra<T> = StorageValue<_, EraIndex>;
+	
+	/// Rewards for the last `HISTORY_DEPTH` eras.
+	/// If reward hasn't been set or has been removed then 0 reward is returned.
+	#[pallet::storage]
+	#[pallet::getter(fn eras_reward_points)]
+	pub type ErasRewardPoints<T: Config> = StorageDoubleMap<
+		_, 
+		Blake2_128Concat, 
+		EraIndex,
+		Blake2_128Concat,
+		T::AssetId,
+		EraRewardPoints<T::AccountId>, 
 		ValueQuery,
 	>;
 
@@ -230,6 +308,8 @@ pub mod pallet {
 		AlreadyACandidate,
 		/// the node has already pinned the CID
 		AlreadyPinned,
+		/// the node is not a candidate storage provider for some asset id
+		NotACandidate,
 	}
 
 	#[pallet::hooks]
@@ -287,10 +367,8 @@ pub mod pallet {
 		#[pallet::weight(0)]
 		pub fn add_validator(origin: OriginFor<T>, validator_id: T::AccountId) -> DispatchResult {
 			T::AddRemoveOrigin::ensure_origin(origin)?;
-
 			Self::do_add_validator(validator_id.clone())?;
 			Self::approve_validator(validator_id)?;
- 
 			Ok(())
 		}
 
@@ -304,10 +382,8 @@ pub mod pallet {
 			validator_id: T::AccountId,
 		) -> DispatchResult {
 			T::AddRemoveOrigin::ensure_origin(origin)?;
-
 			Self::do_remove_validator(validator_id.clone())?;
 			Self::unapprove_validator(validator_id)?;
-
 			Ok(())
 		}
 
@@ -351,7 +427,10 @@ pub mod pallet {
 			Ok(())
 		}
 
-		        /// should only be called by offchain workers... how to ensure this?
+		/// TODO: I really need to address the fact that this is callable by anyone
+		/// Someone could randomly make an asset class on your behalf, making you the admin
+		/// 
+		/// should only be called by offchain workers... how to ensure this?
         /// submits IPFS results on chain and creates new ticket config in runtime storage
         ///
         /// * `admin`: The admin account
@@ -368,6 +447,7 @@ pub mod pallet {
             balance: T::Balance,
         ) -> DispatchResult {
 			let who = ensure_signed(origin)?;
+			// TODO: Need some type of verification to prove the caller pinned the content
 			let new_origin = system::RawOrigin::Signed(who.clone()).into();
 			// creates the asset class
             <pallet_iris_assets::Pallet<T>>::submit_ipfs_add_results(
@@ -377,6 +457,15 @@ pub mod pallet {
 				id,
 				balance,
 			)?;
+			// award point to self
+			if let Some(active_era) = ActiveEra::<T>::get() {
+				<ErasRewardPoints<T>>::mutate(active_era, id, |era_rewards| {
+					*era_rewards.individual.entry(who.clone()).or_default() += 1;
+					era_rewards.total += 1;
+				});
+			} else {
+				// error
+			}
             Ok(())
         }
 
@@ -406,12 +495,23 @@ pub mod pallet {
 			asset_id: T::AssetId,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
+			// verify they are a candidate storage provider
+			let candidate_storage_providers = <CandidateStorageProviders::<T>>::get(asset_id.clone());
+			ensure!(candidate_storage_providers.contains(&who), Error::<T>::NotACandidate);
+			// verify not already pinning the content
 			let current_pinners = <Pinners::<T>>::get(asset_id.clone());
 			ensure!(!current_pinners.contains(&who), Error::<T>::AlreadyPinned);
 			// TODO: we need a better scheme for *generating* pool ids -> should always be unique (cid + owner maybe?)
 			<Pinners<T>>::mutate(asset_id.clone(), |p| {
 				p.push(who.clone());
 			});
+			// award point to self
+			if let Some(active_era) = ActiveEra::<T>::get() {
+				<ErasRewardPoints<T>>::mutate(active_era, asset_id, |era_rewards| {
+					*era_rewards.individual.entry(who.clone()).or_default() += 1;
+					era_rewards.total += 1;
+				});
+			}
 			Ok(())
 		}
 
@@ -424,10 +524,17 @@ pub mod pallet {
         #[pallet::weight(0)]
         pub fn submit_rpc_ready(
             origin: OriginFor<T>,
-            beneficiary: T::AccountId,
-            // host: Vec<u8>,
+			asset_id: T::AssetId,
         ) -> DispatchResult {
             ensure_signed(origin)?;
+			if let Some(active_era) = ActiveEra::<T>::get() {
+				<ErasRewardPoints<T>>::mutate(active_era, asset_id, |era_rewards| {
+					era_rewards.total += 1;
+					era_rewards.unallocated += 1;
+				});
+			} else {
+				// error -> no active era found
+			}
             // Self::deposit_event(Event::DataReady(beneficiary));
             Ok(())
         }
@@ -530,6 +637,16 @@ impl<T: Config> Pallet<T> {
 				// need to only move candidates that have actually proved they pinned the content	
 				<StorageProviders::<T>>::insert(assetid.clone(), pinner_candidate_intersection);
 			} 
+		}
+	}
+
+	// distribute unallocated reward points to storage providers
+	fn distribute_unallocated_reward_points() {
+		// get unallocated rps in active era and disburse to storage providers
+		if let Some(active_era) = ActiveEra::<T>::get() {
+			// fetch reward points for the era
+			
+			
 		}
 	}
 
@@ -731,7 +848,8 @@ impl<T: Config> Pallet<T> {
 									}
 									let results = signer.send_signed_transaction(|_account| { 
 										Call::submit_rpc_ready {
-											beneficiary: requestor.clone(),
+											// beneficiary: requestor.clone(),
+											asset_id: asset_id.clone(),
 										}
 									});
 							
@@ -819,20 +937,25 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
 	// Plan a new session and provide new validator set.
 	fn new_session(new_index: u32) -> Option<Vec<T::AccountId>> {
 		log::info!("Starting new session with index: {:?}", new_index);
+		// TODO: how staking pallet uses this, 'trigger_new_era'
+		CurrentEra::<T>::mutate(|s| *s = Some(new_index));
 		// Remove any offline validators. This will only work when the runtime
 		// also has the im-online pallet.
 		Self::remove_offline_validators();
+		// TODO: REMOVE OFFLINE STORAGE PROVIDERS
 		Self::select_candidate_storage_providers();
 		log::debug!(target: LOG_TARGET, "New session called; updated validator set provided.");
 		Some(Self::validators())
 	}
 
 	fn end_session(end_index: u32) {
-		log::info!("Ending session with index: {:?}", end_index)
+		log::info!("Ending session with index: {:?}", end_index);
+		Self::distribute_unallocated_reward_points();
 	}
 
 	fn start_session(start_index: u32) {
 		log::info!("Starting session with index: {:?}", start_index);
+		ActiveEra::<T>::mutate(|s| *s = Some(start_index)); 
 	}
 }
 

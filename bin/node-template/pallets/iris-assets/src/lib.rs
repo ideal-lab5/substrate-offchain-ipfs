@@ -274,8 +274,12 @@ pub mod pallet {
             Self::deposit_event(Event::AssetCreated(asset_id.clone()));
             Ok(())
         }
-
         
+        /// request to fetch bytes from ipfs and add to offchain storage
+        /// 
+        /// * `owner`: The owner of the content to be fetched 
+        /// * `asset_id`: The asset id identifying the content
+        /// 
 		#[pallet::weight(0)]
 		pub fn request_bytes(
 			origin: OriginFor<T>,

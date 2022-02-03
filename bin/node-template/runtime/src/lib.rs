@@ -223,7 +223,6 @@ parameter_types! {
 impl pallet_iris_session::Config for Runtime {
 	type Event = Event;
 	type Call = Call;
-	// type IrisAssetsCall = IrisAssetsCall;
 	type AddRemoveOrigin = EnsureRoot<AccountId>;
 	type MinAuthorities = MinAuthorities;
 	type AuthorityId = pallet_iris_session::crypto::TestAuthId;
