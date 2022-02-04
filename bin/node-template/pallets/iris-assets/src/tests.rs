@@ -43,7 +43,7 @@ fn iris_assets_ipfs_add_bytes_works_for_valid_value() {
 
 	new_test_ext_funded(p.clone()).execute_with(|| {
 		// WHEN: I invoke the create_storage_assets extrinsic
-		assert_ok!(Iris::create_storage_asset(
+		assert_ok!(Iris::create(
 			Origin::signed(p.clone().public()),
 			p.clone().public(),
 			multiaddr_vec.clone(),
@@ -133,7 +133,7 @@ fn iris_assets_mint_tickets_works_for_valid_values() {
 			balance.clone(),
 		));
 		// WHEN: I invoke the mint_tickets extrinsic
-		assert_ok!(Iris::mint_tickets(
+		assert_ok!(Iris::mint(
 			Origin::signed(p.clone().public()),
 			p.clone().public(),
 			id.clone(),

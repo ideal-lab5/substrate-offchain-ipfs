@@ -21,8 +21,6 @@ use sp_core::{
 	H256,
 };
 use sp_keystore::{testing::KeyStore, KeystoreExt, SyncCryptoStore};
-// use sp_authority_discovery::AuthorityId;
-
 
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -154,8 +152,8 @@ impl frame_system::Config for Test {
 	type Call = Call;
 	type Hash = H256;
 	type Hashing = BlakeTwo256;
-	// type AccountId = sp_core::sr25519::Public;
-	type AccountId = u64;
+	type AccountId = sp_core::sr25519::Public;
+	// type AccountId = u64;
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Header = Header;
 	type Event = Event;

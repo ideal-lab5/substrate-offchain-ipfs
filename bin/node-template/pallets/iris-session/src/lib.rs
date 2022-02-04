@@ -950,7 +950,7 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
 
 	fn end_session(end_index: u32) {
 		log::info!("Ending session with index: {:?}", end_index);
-		Self::distribute_unallocated_reward_points();
+		// Self::distribute_unallocated_reward_points();
 	}
 
 	fn start_session(start_index: u32) {

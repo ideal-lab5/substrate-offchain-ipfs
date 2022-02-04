@@ -25,14 +25,13 @@ sp-core = { default-features = false, version = "4.0.0-dev", path = "../../../..
 sp-runtime = { default-features = false, version = "4.0.0-dev", path = "../../../../primitives/runtime" }
 sp-staking = { version = "4.0.0-dev", default-features = false, path = "../../../../primitives/staking" }
 sp-keystore = { version = "0.10.0-dev", path = "../../../../primitives/keystore", optional = true }
-sp-authority-discovery = { version = "4.0.0-dev", default-features = false, path = "../../../../primitives/authority-discovery" }
 
 frame-support = { default-features = false, version = "4.0.0-dev", path = "../../../../frame/support" }
 frame-system = { default-features = false, version = "4.0.0-dev", path = "../../../../frame/system" }
 frame-benchmarking = { default-features = false, version = "4.0.0-dev", path = "../../../../frame/benchmarking", optional = true }
 log = { version = "0.4.14", default-features = false }
 
-
+pallet-im-online = { version = "4.0.0-dev", default-features = false, path = "../../../../frame/im-online" }
 pallet-session = { version = "4.0.0-dev", default-features = false, features = ["historical"], path = "../../../../frame/session" }
 pallet-iris-assets = { version = "1.0.0", default-features = false, path = "../iris-assets" }
 
@@ -54,8 +53,8 @@ std = [
 	'sp-runtime/std',
 	# todo: can remove this dependency
 	'sp-staking/std',
-	'sp-authority-discovery/std',
 	'log/std',
+	'pallet-im-online/std',
 	'pallet-session/std',
 	'pallet-iris-assets/std',
 ]

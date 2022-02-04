@@ -25,7 +25,7 @@ use sp_runtime::{
 		OpaqueKeys, 
 		ConvertInto,
 	 },
-	transaction_validity::{TransactionSource, TransactionValidity},
+	transaction_validity::{TransactionSource, TransactionValidity, TransactionPriority},
 	ApplyExtrinsicResult, MultiSignature,
 };
 use sp_std::prelude::*;
@@ -34,6 +34,7 @@ use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 use frame_system::EnsureRoot;
 use pallet_session::historical as pallet_session_historical;
+use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
 
 // A few exports that help ease life for downstream crates.
 pub use frame_support::{
@@ -102,6 +103,7 @@ pub mod opaque {
 		pub struct SessionKeys {
 			pub aura: Aura,
 			pub grandpa: Grandpa,
+			pub im_online: ImOnline,
 		}
 	}
 }
@@ -241,9 +243,29 @@ impl pallet_session::Config for Runtime {
 	type SessionManager = IrisSession;
 	type SessionHandler = <opaque::SessionKeys as OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = opaque::SessionKeys;
-	type WeightInfo = ();
+	type WeightInfo = pallet_session::weights::SubstrateWeight<Runtime>;
 	type DisabledValidatorsThreshold = ();
 	type Event = Event;
+}
+
+parameter_types! {
+	pub const ImOnlineUnsignedPriority: TransactionPriority = TransactionPriority::max_value();
+	pub const MaxKeys: u32 = 10_000;
+	pub const MaxPeerInHeartbeats: u32 = 10_000;
+	pub const MaxPeerDataEncodingSize: u32 = 1_000;
+}
+
+impl pallet_im_online::Config for Runtime {
+	type AuthorityId = ImOnlineId;
+	type Event = Event;
+	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
+	type ValidatorSet = IrisSession;
+	type ReportUnresponsiveness = IrisSession;
+	type UnsignedPriority = ImOnlineUnsignedPriority;
+	type WeightInfo = pallet_im_online::weights::SubstrateWeight<Runtime>;
+	type MaxKeys = MaxKeys;
+	type MaxPeerInHeartbeats = MaxPeerInHeartbeats;
+	type MaxPeerDataEncodingSize = MaxPeerDataEncodingSize;
 }
 
 parameter_types! {
@@ -306,6 +328,8 @@ impl pallet_balances::Config for Runtime {
 	type AccountStore = System;
 	type WeightInfo = pallet_balances::weights::SubstrateWeight<Runtime>;
 }
+
+
 
 parameter_types! {
 	pub const TransactionByteFee: Balance = 1;
@@ -429,6 +453,9 @@ construct_runtime!(
 		IrisSession: pallet_iris_session::{Pallet, Call, Storage, Event<T>, Config<T>},
 		Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>},
 		Assets: pallet_assets::{Pallet, Storage, Event<T>},
+		ImOnline: pallet_im_online::{Pallet, Call, Storage, Event<T>, ValidateUnsigned, Config<T>},
+		// Offences: pallet_offences::{Pallet, Storage, Event},
+		// Historical: pallet_session_historical::{Pallet},
 		Aura: pallet_aura::{Pallet, Config<T>},
 		Grandpa: pallet_grandpa::{Pallet, Call, Storage, Config, Event},
 	}

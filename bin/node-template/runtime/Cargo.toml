@@ -19,17 +19,18 @@ pallet-aura = { version = "4.0.0-dev", default-features = false, path = "../../.
 pallet-balances = { version = "4.0.0-dev", default-features = false, path = "../../../frame/balances" }
 frame-support = { version = "4.0.0-dev", default-features = false, path = "../../../frame/support" }
 pallet-grandpa = { version = "4.0.0-dev", default-features = false, path = "../../../frame/grandpa" }
+# TODO: REMOVE THIS
 pallet-randomness-collective-flip = { version = "4.0.0-dev", default-features = false, path = "../../../frame/randomness-collective-flip" }
 pallet-sudo = { version = "4.0.0-dev", default-features = false, path = "../../../frame/sudo" }
+pallet-im-online = { version = "4.0.0-dev", default-features = false, path = "../../../frame/im-online" }
 pallet-assets = { version = "4.0.0-dev", default-features = false, path = "../../../frame/assets" }
 pallet-session = { version = "4.0.0-dev", default-features = false, features = ["historical"], path = "../../../frame/session" }
 pallet-iris-assets = { version = "1.0.0", default-features = false, path = "../pallets/iris-assets" }
 pallet-iris-session = { version = "1.0.0", default-features = false, path = "../pallets/iris-session" }
-
-
-frame-system = { version = "4.0.0-dev", default-features = false, path = "../../../frame/system" }
 pallet-timestamp = { version = "4.0.0-dev", default-features = false, path = "../../../frame/timestamp" }
 pallet-transaction-payment = { version = "4.0.0-dev", default-features = false, path = "../../../frame/transaction-payment" }
+
+frame-system = { version = "4.0.0-dev", default-features = false, path = "../../../frame/system" }
 frame-executive = { version = "4.0.0-dev", default-features = false, path = "../../../frame/executive" }
 sp-api = { version = "4.0.0-dev", default-features = false, path = "../../../primitives/api" }
 sp-block-builder = { path = "../../../primitives/block-builder", default-features = false, version = "4.0.0-dev"}
@@ -71,6 +72,7 @@ std = [
 	"pallet-grandpa/std",
 	"pallet-randomness-collective-flip/std",
 	"pallet-sudo/std",
+	"pallet-im-online/std",
 	"pallet-iris-assets/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
