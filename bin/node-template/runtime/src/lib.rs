@@ -220,6 +220,7 @@ impl pallet_randomness_collective_flip::Config for Runtime {}
 parameter_types! {
 	// TODO: Increase this when done testing
 	pub const MinAuthorities: u32 = 1;
+	pub const MaxDeadSession: u32 = 3;
 }
 
 impl pallet_iris_session::Config for Runtime {
@@ -227,6 +228,7 @@ impl pallet_iris_session::Config for Runtime {
 	type Call = Call;
 	type AddRemoveOrigin = EnsureRoot<AccountId>;
 	type MinAuthorities = MinAuthorities;
+	type MaxDeadSession = MaxDeadSession;
 	type AuthorityId = pallet_iris_session::crypto::TestAuthId;
 }
 

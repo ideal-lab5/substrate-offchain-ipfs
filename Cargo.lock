@@ -5045,7 +5045,6 @@ dependencies = [
  "pallet-iris-assets",
  "pallet-iris-rpc-runtime-api",
  "pallet-iris-session",
- "pallet-offences",
  "pallet-randomness-collective-flip",
  "pallet-session",
  "pallet-sudo",

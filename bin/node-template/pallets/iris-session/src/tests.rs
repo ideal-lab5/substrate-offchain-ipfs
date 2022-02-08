@@ -15,18 +15,46 @@ use std::sync::Arc;
 
 #[test]
 fn iris_session_simple_setup_should_work() {
+	let V0: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("0")).0.public(), 
+		UintAuthorityId(0)
+	);
+	let V1: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("1")).0.public(), 
+		UintAuthorityId(1)
+	);
+	let V2: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("2")).0.public(), 
+		UintAuthorityId(2)
+	);
 	new_test_ext().execute_with(|| {
-		assert_eq!(authorities(), vec![UintAuthorityId(1), UintAuthorityId(2), UintAuthorityId(3)]);
-		assert_eq!(crate::Validators::<Test>::get(), vec![1u64, 2u64, 3u64]);
-		assert_eq!(Session::validators(), vec![1, 2, 3]);
+		assert_eq!(authorities(), vec![V0.1, V1.1, V2.1]);
+		assert_eq!(crate::Validators::<Test>::get(), vec![V0.0, V1.0, V2.0]);
+		assert_eq!(Session::validators(), vec![V0.0, V1.0, V2.0]);
 	});
 }
 
 #[test]
 fn iris_session_add_validator_updates_validators_list() {
+	let V0: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("0")).0.public(), 
+		UintAuthorityId(0)
+	);
+	let V1: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("1")).0.public(), 
+		UintAuthorityId(1)
+	);
+	let V2: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("2")).0.public(), 
+		UintAuthorityId(2)
+	);
+	let V3: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("3")).0.public(), 
+		UintAuthorityId(3)
+	);
 	new_test_ext().execute_with(|| {
-		assert_ok!(IrisSession::add_validator(Origin::root(), 4));
-		assert_eq!(crate::Validators::<Test>::get(), vec![1u64, 2u64, 3u64, 4u64])
+		assert_ok!(IrisSession::add_validator(Origin::root(), V3.0));
+		assert_eq!(crate::Validators::<Test>::get(), vec![V0.0, V1.0, V2.0, V3.0]);
 	});
 }
 

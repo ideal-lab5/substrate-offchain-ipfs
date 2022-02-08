@@ -115,12 +115,8 @@ pub type RewardPoint = u32;
 pub struct EraRewardPoints<AccountId> {
 	/// the total number of points
 	total: RewardPoint,
-	/// the reward points for individual validators (sum(i.rewardPoint in individual) = total)
+	/// the reward points for individual validators, sum(i.rewardPoint in individual) = total
 	individual: BTreeMap<AccountId, RewardPoint>,
-	/// the unallocated reward points are distributed evenly among storage providers
-	/// at the end of a session. These reward points are added when a consumer node
-	/// requests data from IPFS
-	unallocated: RewardPoint,
 }
 
 /// Information regarding the active era (era in used in session).
@@ -163,6 +159,8 @@ pub mod pallet {
 		/// Minimum number of validators to leave in the validator set during
 		/// auto removal.
 		type MinAuthorities: Get<u32>;
+		/// the maximum number of session that a node can earn less than MinEraRewardPoints before suspension
+		type MaxDeadSession: Get<u32>;
 		/// the authority id used for sending signed txs
         type AuthorityId: AppCrypto<Self::Public, Self::Signature>;
 	}
@@ -175,56 +173,35 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn bootstrap_nodes)]
     pub(super) type BootstrapNodes<T: Config> = StorageMap<
-        _,
-        Blake2_128Concat,
-        Vec<u8>,
-        Vec<OpaqueMultiaddr>,
-        ValueQuery,
+        _, Blake2_128Concat, Vec<u8>, Vec<OpaqueMultiaddr>, ValueQuery,
     >;
 
 	/// map substrate public key to ipfs public key
 	#[pallet::storage]
 	#[pallet::getter(fn substrate_ipfs_bridge)]
 	pub(super) type SubstrateIpfsBridge<T: Config> = StorageMap<
-		_,
-		Blake2_128Concat,
-		T::AccountId,
-		Vec<u8>,
-		ValueQuery,
+		_, Blake2_128Concat, T::AccountId, Vec<u8>, ValueQuery,
 	>;
 
 	/// Maps an asset id to a collection of nodes that want to provider storage
 	#[pallet::storage]
 	#[pallet::getter(fn candidate_storage_providers)]
-	// TODO: Change to QueuedStorageProviders
-	pub(super) type CandidateStorageProviders<T: Config> = StorageMap<
-		_,
-		Blake2_128Concat,
-		T::AssetId,
-		Vec<T::AccountId>,
-		ValueQuery,
+	pub(super) type QueuedStorageProviders<T: Config> = StorageMap<
+		_, Blake2_128Concat, T::AssetId, Vec<T::AccountId>, ValueQuery,
 	>;
 
 	/// maps an asset id to a collection of nodes that are providing storage
 	#[pallet::storage]
 	#[pallet::getter(fn storage_providers)]
 	pub(super) type StorageProviders<T: Config> = StorageMap<
-		_,
-		Blake2_128Concat,
-		T::AssetId,
-		Vec<T::AccountId>,
-		ValueQuery,
+		_, Blake2_128Concat, T::AssetId, Vec<T::AccountId>, ValueQuery,
 	>;
 
 	/// maps an asset id to a collection of nodes that have inserted the pin for the underlying cid
 	#[pallet::storage]
 	#[pallet::getter(fn pinners)]
 	pub(super) type Pinners<T: Config> = StorageMap<
-		_,
-		Blake2_128Concat,
-		T::AssetId,
-		Vec<T::AccountId>,
-		ValueQuery,
+		_, Blake2_128Concat, T::AssetId, Vec<T::AccountId>, ValueQuery,
 	>;
 
 	/// The current era index.
@@ -233,7 +210,9 @@ pub mod pallet {
 	/// set, it might be active or not.
 	#[pallet::storage]
 	#[pallet::getter(fn current_era)]
-	pub type CurrentEra<T> = StorageValue<_, EraIndex>;
+	pub type CurrentEra<T> = StorageValue<
+		_, EraIndex
+	>;
 
 	/// The active era information, it holds index and start.
 	///
@@ -242,33 +221,57 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn active_era)]
 	// TODO: Do I need the ActiveEraInfo?
-	pub type ActiveEra<T> = StorageValue<_, EraIndex>;
+	pub type ActiveEra<T> = StorageValue<
+		_, EraIndex
+	>;
 	
 	/// Rewards for the last `HISTORY_DEPTH` eras.
 	/// If reward hasn't been set or has been removed then 0 reward is returned.
 	#[pallet::storage]
 	#[pallet::getter(fn eras_reward_points)]
 	pub type ErasRewardPoints<T: Config> = StorageDoubleMap<
-		_, 
-		Blake2_128Concat, 
-		EraIndex,
-		Blake2_128Concat,
-		T::AssetId,
-		EraRewardPoints<T::AccountId>, 
-		ValueQuery,
+		_, Blake2_128Concat, EraIndex, Blake2_128Concat, T::AssetId, EraRewardPoints<T::AccountId>, ValueQuery,
+	>;
+
+	///
+	/// 
+	#[pallet::storage]
+	#[pallet::getter(fn validators)]
+	pub type Validators<T: Config> = StorageValue<
+		_, Vec<T::AccountId>, ValueQuery>;
+
+	///
+	/// 
+	#[pallet::storage]
+	#[pallet::getter(fn approved_validators)]
+	pub type ApprovedValidators<T: Config> = StorageValue<
+		_, Vec<T::AccountId>, ValueQuery>;
+
+	///
+	/// 
+	#[pallet::storage]
+	#[pallet::getter(fn validators_to_remove)]
+	pub type OfflineValidators<T: Config> = StorageValue<
+		_, Vec<T::AccountId>, ValueQuery>;
+
+	#[pallet::storage]
+	#[pallet::getter(fn total_session_rewards)]
+	pub type SessionParticipation<T: Config> = StorageMap<
+		_, Blake2_128Concat, EraIndex, Vec<T::AccountId>, ValueQuery,
 	>;
 
 	#[pallet::storage]
-	#[pallet::getter(fn validators)]
-	pub type Validators<T: Config> = StorageValue<_, Vec<T::AccountId>, ValueQuery>;
+	#[pallet::getter(fn unproductive_sessions)]
+	pub type UnproductiveSessions<T: Config> = StorageMap<
+		_, Blake2_128Concat, T::AccountId, u32, ValueQuery,
+	>;
 
-	#[pallet::storage]
-	#[pallet::getter(fn approved_validators)]
-	pub type ApprovedValidators<T: Config> = StorageValue<_, Vec<T::AccountId>, ValueQuery>;
-
-	#[pallet::storage]
-	#[pallet::getter(fn validators_to_remove)]
-	pub type OfflineValidators<T: Config> = StorageValue<_, Vec<T::AccountId>, ValueQuery>;
+	///
+	/// 
+	// #[pallet::storage]
+	// #[pallet::getter(fn dead_validator)]
+	// pub type DeadValidators<T: Config> = StorageMap<
+	// 	_, Blake2_128Concat, u32, Vec<T::AccountId>, ValueQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -415,10 +418,10 @@ pub mod pallet {
 			// submit a request to join a storage pool in the next session
 			let who = ensure_signed(origin)?;
 			let new_origin = system::RawOrigin::Signed(who.clone()).into();
-			let candidate_storage_providers = <CandidateStorageProviders::<T>>::get(pool_id.clone());
+			let candidate_storage_providers = <QueuedStorageProviders::<T>>::get(pool_id.clone());
 			ensure!(!candidate_storage_providers.contains(&who), Error::<T>::AlreadyACandidate);
 			// TODO: we need a better scheme for *generating* pool ids -> should always be unique (cid + owner maybe?)
-			<CandidateStorageProviders<T>>::mutate(pool_id.clone(), |sp| {
+			<QueuedStorageProviders<T>>::mutate(pool_id.clone(), |sp| {
 				sp.push(who.clone());
 			});
 			let owner = T::Lookup::lookup(pool_owner)?;
@@ -459,7 +462,11 @@ pub mod pallet {
 			)?;
 			// award point to self
 			if let Some(active_era) = ActiveEra::<T>::get() {
-				<ErasRewardPoints<T>>::mutate(active_era, id, |era_rewards| {
+				<ErasRewardPoints<T>>::mutate(active_era.clone(), id, |era_rewards| {
+					// increment total session rewards (used to find non-contributing validators)
+					SessionParticipation::<T>::mutate(active_era.clone(), |participants| {
+						participants.push(who.clone());
+					});
 					*era_rewards.individual.entry(who.clone()).or_default() += 1;
 					era_rewards.total += 1;
 				});
@@ -496,7 +503,7 @@ pub mod pallet {
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			// verify they are a candidate storage provider
-			let candidate_storage_providers = <CandidateStorageProviders::<T>>::get(asset_id.clone());
+			let candidate_storage_providers = <QueuedStorageProviders::<T>>::get(asset_id.clone());
 			ensure!(candidate_storage_providers.contains(&who), Error::<T>::NotACandidate);
 			// verify not already pinning the content
 			let current_pinners = <Pinners::<T>>::get(asset_id.clone());
@@ -507,6 +514,9 @@ pub mod pallet {
 			});
 			// award point to self
 			if let Some(active_era) = ActiveEra::<T>::get() {
+				SessionParticipation::<T>::mutate(active_era.clone(), |p| {
+					p.push(who.clone());
+				});
 				<ErasRewardPoints<T>>::mutate(active_era, asset_id, |era_rewards| {
 					*era_rewards.individual.entry(who.clone()).or_default() += 1;
 					era_rewards.total += 1;
@@ -528,9 +538,15 @@ pub mod pallet {
         ) -> DispatchResult {
             ensure_signed(origin)?;
 			if let Some(active_era) = ActiveEra::<T>::get() {
-				<ErasRewardPoints<T>>::mutate(active_era, asset_id, |era_rewards| {
+				<ErasRewardPoints<T>>::mutate(active_era.clone(), asset_id.clone(), |era_rewards| {
+					// reward all active storage providers
+					for k in StorageProviders::<T>::get(asset_id.clone()).into_iter() {
+						SessionParticipation::<T>::mutate(active_era.clone(), |p| {
+							p.push(k.clone());
+						});
+						*era_rewards.individual.entry(k.clone()).or_default() += 1;
+					}
 					era_rewards.total += 1;
-					era_rewards.unallocated += 1;
 				});
 			} else {
 				// error -> no active era found
@@ -553,6 +569,9 @@ impl<T: Config> Pallet<T> {
 		let validator_set: BTreeSet<_> = <Validators<T>>::get().into_iter().collect();
 		ensure!(!validator_set.contains(&validator_id), Error::<T>::Duplicate);
 		<Validators<T>>::mutate(|v| v.push(validator_id.clone()));
+		UnproductiveSessions::<T>::mutate(validator_id.clone(), |v| {
+			*v = 0;
+		});
 
 		Self::deposit_event(Event::ValidatorAdditionInitiated(validator_id.clone()));
 		log::debug!(target: LOG_TARGET, "Validator addition initiated.");
@@ -610,27 +629,27 @@ impl<T: Config> Pallet<T> {
 		let validators_to_remove: BTreeSet<_> = <OfflineValidators<T>>::get().into_iter().collect();
 
 		// Delete from active validator set.
-		<Validators<T>>::mutate(|vs| vs.retain(|v| !validators_to_remove.contains(v)));
+		<Validators<T>>::mutate(|vs| vs.retain(|v| !validators_to_remove.contains(v))); 
 		log::debug!(
 			target: LOG_TARGET,
 			"Initiated removal of {:?} offline validators.",
 			validators_to_remove.len()
 		);
 
+		// remove as storage provider
+		// remove from pinners (and unpin the cid)
 		// Clear the offline validator list to avoid repeated deletion.
 		<OfflineValidators<T>>::put(Vec::<T::AccountId>::new());
 	}
 
 	/// move candidates to the active provider pool for some asset id
+	/// TODO: this undoubtedly will not scale very well 
 	fn select_candidate_storage_providers() {
-		// TODO: for now, we will just copy the candidates to the active providers map
-		// no real selection is happening yet, just doing this to get it in place for now
-		// iterate over asset ids
 		// if there are candidate storage providers => for each candidate that pinned the file, move them to storage providers
 		for assetid in <pallet_iris_assets::Pallet<T>>::asset_ids().into_iter() {
 			// if there are candidates for the asset id
-			if <CandidateStorageProviders<T>>::contains_key(assetid.clone()) {
-				let candidates = <CandidateStorageProviders<T>>::get(assetid.clone());
+			if <QueuedStorageProviders<T>>::contains_key(assetid.clone()) {
+				let candidates = <QueuedStorageProviders<T>>::get(assetid.clone());
 				let pinners = <Pinners<T>>::get(assetid.clone());
 				let pinner_candidate_intersection = 
 					candidates.into_iter().filter(|c| pinners.contains(c)).collect::<Vec<T::AccountId>>();
@@ -640,13 +659,19 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
-	// distribute unallocated reward points to storage providers
-	fn distribute_unallocated_reward_points() {
-		// get unallocated rps in active era and disburse to storage providers
-		if let Some(active_era) = ActiveEra::<T>::get() {
-			// fetch reward points for the era
-			
-			
+	fn mark_dead_validators(era_index: EraIndex) {
+		// for each validator that didn't participate, mark for removal
+		let partipating_validators = SessionParticipation::<T>::get(era_index.clone());
+		for acct in Validators::<T>::get() {
+			if !partipating_validators.contains(&acct) {
+				if UnproductiveSessions::<T>::get(acct.clone()) <= T::MaxDeadSession::get() {
+					UnproductiveSessions::<T>::mutate(acct.clone(), |v| {
+						*v += 1;
+					});
+				} else {
+					Self::mark_for_removal(acct);
+				}
+			}
 		}
 	}
 
@@ -752,17 +777,17 @@ impl<T: Config> Pallet<T> {
 	/// process any requests in the DataQueue
 	/// TODO: This needs some *major* refactoring
     fn handle_data_requests() -> Result<(), Error<T>> {
-		if sp_io::offchain::is_validator() {
-			let data_queue = <pallet_iris_assets::Pallet<T>>::data_queue();
-			let len = data_queue.len();
-			if len != 0 {
-				log::info!("IPFS: {} entr{} in the data queue", len, if len == 1 { "y" } else { "ies" });
-			}
-			// TODO: Needs refactoring
-			let deadline = Some(timestamp().add(Duration::from_millis(5_000)));
-			for cmd in data_queue.into_iter() {
-				match cmd {
-					DataCommand::AddBytes(addr, cid, admin, _name, id, balance) => {
+		let data_queue = <pallet_iris_assets::Pallet<T>>::data_queue();
+		let len = data_queue.len();
+		if len != 0 {
+			log::info!("IPFS: {} entr{} in the data queue", len, if len == 1 { "y" } else { "ies" });
+		}
+		// TODO: Needs refactoring
+		let deadline = Some(timestamp().add(Duration::from_millis(5_000)));
+		for cmd in data_queue.into_iter() {
+			match cmd {
+				DataCommand::AddBytes(addr, cid, admin, _name, id, balance) => {
+					if sp_io::offchain::is_validator() {
 						Self::ipfs_request(IpfsRequest::Connect(addr.clone()), deadline)?;
 						log::info!(
 							"IPFS: connected to {}",
@@ -811,63 +836,67 @@ impl<T: Config> Pallet<T> {
 							Ok(_) => unreachable!("only CatBytes can be a response for that request type."),
 							Err(e) => log::error!("IPFS: cat error: {:?}", e),
 						}
-					},
-					DataCommand::CatBytes(requestor, owner, asset_id) => {
-						let (public_key, addrs) = 
-							if let IpfsResponse::Identity(public_key, addrs) = 
-								Self::ipfs_request(IpfsRequest::Identity, deadline)? {
-							(public_key, addrs)
-						} else {
-							unreachable!("only `Identity` is a valid response type.");
-						};
-						let expected_pub_key = <SubstrateIpfsBridge::<T>>::get(requestor.clone());
-						ensure!(public_key == expected_pub_key, Error::<T>::BadOrigin);
+					}
+				},
+				DataCommand::CatBytes(requestor, owner, asset_id) => {
+					// fetch ipfs id
+					let (public_key, addrs) = 
+						if let IpfsResponse::Identity(public_key, addrs) = 
+							Self::ipfs_request(IpfsRequest::Identity, deadline)? {
+						(public_key, addrs)
+					} else {
+						unreachable!("only `Identity` is a valid response type.");
+					};
+					// verify ipfs pub key
+					let expected_pub_key = <SubstrateIpfsBridge::<T>>::get(requestor.clone());
+					ensure!(public_key == expected_pub_key, Error::<T>::BadOrigin);
 
-						if let cid = <pallet_iris_assets::Pallet<T>>::asset_class_ownership(
-							owner.clone(), asset_id.clone()
-						) {	
-							ensure!(
-								owner.clone() == <pallet_iris_assets::Pallet<T>>::asset_access(requestor.clone(), asset_id.clone()),
-								Error::<T>::InsufficientBalance
-							);
-							match Self::ipfs_request(IpfsRequest::CatBytes(cid.clone()), deadline) {
-								Ok(IpfsResponse::CatBytes(data)) => {
-									log::info!("IPFS: Fetched data from IPFS.");
-									// add to offchain index
-									sp_io::offchain::local_storage_set(
-										StorageKind::PERSISTENT,
-										&cid,
-										&data,
+					if let cid = <pallet_iris_assets::Pallet<T>>::asset_class_ownership(
+						owner.clone(), asset_id.clone()
+					) {	
+						ensure!(
+							owner.clone() == <pallet_iris_assets::Pallet<T>>::asset_access(requestor.clone(), asset_id.clone()),
+							Error::<T>::InsufficientBalance
+						);
+						match Self::ipfs_request(IpfsRequest::CatBytes(cid.clone()), deadline) {
+							Ok(IpfsResponse::CatBytes(data)) => {
+								log::info!("IPFS: Fetched data from IPFS.");
+								// add to offchain index
+								sp_io::offchain::local_storage_set(
+									StorageKind::PERSISTENT,
+									&cid,
+									&data,
+								);
+								
+								let signer = Signer::<T, T::AuthorityId>::all_accounts();
+								if !signer.can_sign() {
+									log::error!(
+										"No local accounts available. Consider adding one via `author_insertKey` RPC.",
 									);
-									
-									let signer = Signer::<T, T::AuthorityId>::all_accounts();
-									if !signer.can_sign() {
-										log::error!(
-											"No local accounts available. Consider adding one via `author_insertKey` RPC.",
-										);
+								}
+								let results = signer.send_signed_transaction(|_account| { 
+									Call::submit_rpc_ready {
+										// beneficiary: requestor.clone(),
+										asset_id: asset_id.clone(),
 									}
-									let results = signer.send_signed_transaction(|_account| { 
-										Call::submit_rpc_ready {
-											// beneficiary: requestor.clone(),
-											asset_id: asset_id.clone(),
-										}
-									});
-							
-									for (_, res) in &results {
-										match res {
-											Ok(()) => log::info!("Submitted ipfs results"),
-											Err(e) => log::error!("Failed to submit transaction: {:?}",  e),
-										}
+								});
+						
+								for (_, res) in &results {
+									match res {
+										Ok(()) => log::info!("Submitted ipfs results"),
+										Err(e) => log::error!("Failed to submit transaction: {:?}",  e),
 									}
-								},
-								Ok(_) => unreachable!("only CatBytes can be a response for that request type."),
-								Err(e) => log::error!("IPFS: cat error: {:?}", e),
-							}
-						} else {
-							log::error!("the provided owner/cid does not map to a valid asset id: {:?}, {:?}", owner, asset_id)
+								}
+							},
+							Ok(_) => unreachable!("only CatBytes can be a response for that request type."),
+							Err(e) => log::error!("IPFS: cat error: {:?}", e),
 						}
-					},
-					DataCommand::PinCID(acct, asset_id, cid) => {
+					} else {
+						log::error!("the provided owner/cid does not map to a valid asset id: {:?}, {:?}", owner, asset_id)
+					}
+				},
+				DataCommand::PinCID(acct, asset_id, cid) => {
+					if sp_io::offchain::is_validator() {
 						let (public_key, addrs) = 
 							if let IpfsResponse::Identity(public_key, addrs) = 
 								Self::ipfs_request(IpfsRequest::Identity, deadline)? {
@@ -928,7 +957,6 @@ impl<T: Config> Pallet<T> {
         );
         Ok(())
     }
-
 }
 
 // Provides the new set of validators to the session module when session is
@@ -939,8 +967,6 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
 		log::info!("Starting new session with index: {:?}", new_index);
 		// TODO: how staking pallet uses this, 'trigger_new_era'
 		CurrentEra::<T>::mutate(|s| *s = Some(new_index));
-		// Remove any offline validators. This will only work when the runtime
-		// also has the im-online pallet.
 		Self::remove_offline_validators();
 		// TODO: REMOVE OFFLINE STORAGE PROVIDERS
 		Self::select_candidate_storage_providers();
@@ -950,7 +976,7 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
 
 	fn end_session(end_index: u32) {
 		log::info!("Ending session with index: {:?}", end_index);
-		// Self::distribute_unallocated_reward_points();
+		Self::mark_dead_validators(end_index);
 	}
 
 	fn start_session(start_index: u32) {
