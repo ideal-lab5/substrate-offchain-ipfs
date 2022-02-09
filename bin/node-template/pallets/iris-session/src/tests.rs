@@ -58,20 +58,28 @@ fn iris_session_add_validator_updates_validators_list() {
 	});
 }
 
-// #[test]
-// fn iris_session_remove_validator_updates_validators_list() {
-// 	new_test_ext().execute_with(|| {
-// 		assert_ok!(ValidatorSet::remove_validator(Origin::root(), 2));
-// 		assert_eq!(ValidatorSet::validators(), vec![1u64, 3u64]);
-// 	});
-// }
+#[test]
+fn iris_session_remove_validator_updates_validators_list() {
+	let V0: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("0")).0.public(), 
+		UintAuthorityId(0)
+	);
+	let V2: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("2")).0.public(), 
+		UintAuthorityId(2)
+	);
+	new_test_ext().execute_with(|| {
+		assert_ok!(crate::ValidatorSet::remove_validator(Origin::root(), 2));
+		assert_eq!(crate::ValidatorSet::validators(), vec![V0.0, V2.0]);
+	});
+}
 
-// #[test]
-// fn iris_session_add_validator_fails_with_invalid_origin() {
-// 	new_test_ext().execute_with(|| {
-// 		assert_noop!(ValidatorSet::add_validator(Origin::signed(1), 4), DispatchError::BadOrigin);
-// 	});
-// }
+#[test]
+fn iris_session_add_validator_fails_with_invalid_origin() {
+	new_test_ext().execute_with(|| {
+		assert_noop!(crate::ValidatorSet::add_validator(Origin::signed(1), 4), DispatchError::BadOrigin);
+	});
+}
 
 // #[test]
 // fn iris_session_remove_validator_fails_with_invalid_origin() {

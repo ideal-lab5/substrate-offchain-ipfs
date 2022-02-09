@@ -374,7 +374,7 @@ mod tests {
 		}
 	}
 
-	fn offchain_api() -> (Api, AsyncApi) {
+	fn offchain_api() -> (Api, AsyncApi<I>) {
 		sp_tracing::try_init_simple();
 		let mock = Arc::new(TestNetwork());
 		let shared_client = SharedClient::new();
