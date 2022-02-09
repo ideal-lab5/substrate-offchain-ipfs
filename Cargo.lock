@@ -3032,7 +3032,7 @@ dependencies = [
 [[package]]
 name = "ipfs"
 version = "0.2.1"
-source = "git+https://github.com/rs-ipfs/rust-ipfs?branch=master#111f116e366e8f3f9b409d1c92be6ac51f7009f4"
+source = "git+https://github.com/rs-ipfs/rust-ipfs?rev=ed430faed019e693a2e66844e6d9ded7624230f5#ed430faed019e693a2e66844e6d9ded7624230f5"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -3045,8 +3045,8 @@ dependencies = [
  "fs2",
  "futures 0.3.17",
  "hash_hasher",
- "ipfs-bitswap 0.1.0 (git+https://github.com/rs-ipfs/rust-ipfs?branch=master)",
- "ipfs-unixfs 0.2.0 (git+https://github.com/rs-ipfs/rust-ipfs?branch=master)",
+ "ipfs-bitswap 0.1.0 (git+https://github.com/rs-ipfs/rust-ipfs?rev=ed430faed019e693a2e66844e6d9ded7624230f5)",
+ "ipfs-unixfs 0.2.0 (git+https://github.com/rs-ipfs/rust-ipfs?rev=ed430faed019e693a2e66844e6d9ded7624230f5)",
  "libp2p",
  "multibase 0.9.1",
  "multihash 0.11.4",
@@ -3106,7 +3106,7 @@ dependencies = [
 [[package]]
 name = "ipfs-bitswap"
 version = "0.1.0"
-source = "git+https://github.com/rs-ipfs/rust-ipfs?branch=master#111f116e366e8f3f9b409d1c92be6ac51f7009f4"
+source = "git+https://github.com/rs-ipfs/rust-ipfs?rev=ed430faed019e693a2e66844e6d9ded7624230f5#ed430faed019e693a2e66844e6d9ded7624230f5"
 dependencies = [
  "cid 0.5.1",
  "fnv",
@@ -3146,7 +3146,7 @@ dependencies = [
 [[package]]
 name = "ipfs-unixfs"
 version = "0.2.0"
-source = "git+https://github.com/rs-ipfs/rust-ipfs?branch=master#111f116e366e8f3f9b409d1c92be6ac51f7009f4"
+source = "git+https://github.com/rs-ipfs/rust-ipfs?rev=ed430faed019e693a2e66844e6d9ded7624230f5#ed430faed019e693a2e66844e6d9ded7624230f5"
 dependencies = [
  "cid 0.5.1",
  "either",
@@ -8551,7 +8551,7 @@ dependencies = [
  "hex",
  "hyper 0.14.13",
  "hyper-rustls",
- "ipfs 0.2.1 (git+https://github.com/rs-ipfs/rust-ipfs?branch=master)",
+ "ipfs 0.2.1 (git+https://github.com/rs-ipfs/rust-ipfs?rev=ed430faed019e693a2e66844e6d9ded7624230f5)",
  "lazy_static",
  "log 0.4.14",
  "num_cpus",

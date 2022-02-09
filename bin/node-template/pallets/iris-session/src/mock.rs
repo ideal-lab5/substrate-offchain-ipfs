@@ -315,48 +315,48 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 		.assimilate_storage(&mut t)
 		.unwrap();
 
-	// let (pair1, _) = sp_core::sr25519::Pair::generate();
-	// let (pair2, _) = sp_core::sr25519::Pair::generate();
-	// let (pair3, _) = sp_core::sr25519::Pair::generate();
-	// pallet_balances::GenesisConfig::<Test> {
-	// 	balances: vec![(pair1.public(), 10), (pair2.public(), 20), (pair3.public(), 30)],
-	// }
-	// .assimilate_storage(&mut t)
-	// .unwrap();
+	let (pair1, _) = sp_core::sr25519::Pair::generate();
+	let (pair2, _) = sp_core::sr25519::Pair::generate();
+	let (pair3, _) = sp_core::sr25519::Pair::generate();
+	pallet_balances::GenesisConfig::<Test> {
+		balances: vec![(pair1.public(), 10), (pair2.public(), 20), (pair3.public(), 30)],
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
 
 	sp_io::TestExternalities::new(t)
 }
 
 // Build genesis storage according to the mock runtime.
-// pub fn new_test_ext_funded(pair1_funded: sp_core::sr25519::Pair) -> sp_io::TestExternalities {
-// 	let mut t = frame_system::GenesisConfig::default().build_storage::<Test>().unwrap();
-// 	let keys: Vec<_> = NEXT_VALIDATORS
-// 		.with(|l| l.borrow().iter().cloned().map(|i| (i, i, UintAuthorityId(i).into())).collect());
-// 	BasicExternalities::execute_with_storage(&mut t, || {
-// 		for (ref k, ..) in &keys {
-// 			frame_system::Pallet::<Test>::inc_providers(k);
-// 		}
-// 		frame_system::Pallet::<Test>::inc_providers(&4);
-// 		frame_system::Pallet::<Test>::inc_providers(&69);
-// 	});
+pub fn new_test_ext_funded(pair1_funded: sp_core::sr25519::Pair) -> sp_io::TestExternalities {
+	let mut t = frame_system::GenesisConfig::default().build_storage::<Test>().unwrap();
+	let keys: Vec<_> = NEXT_VALIDATORS
+		.with(|l| l.borrow().iter().cloned().map(|i| (i.0, i.0, i.1.into())).collect());
+	BasicExternalities::execute_with_storage(&mut t, || {
+		for (ref k, ..) in &keys {
+			frame_system::Pallet::<Test>::inc_providers(k);
+		}
+		// frame_system::Pallet::<Test>::inc_providers(&4);
+		// frame_system::Pallet::<Test>::inc_providers(&69);
+	});
 
-// 	pallet_iris_session::GenesisConfig::<Test> {
-// 		initial_validators: keys.iter().map(|x| x.0).collect::<Vec<_>>(),
-// 	}
-// 	.assimilate_storage(&mut t)
-// 	.unwrap();
+	pallet_iris_session::GenesisConfig::<Test> {
+		initial_validators: keys.iter().map(|x| x.0).collect::<Vec<_>>(),
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
 	
-// 	pallet_session::GenesisConfig::<Test> { keys: keys.clone() }
-// 		.assimilate_storage(&mut t)
-// 		.unwrap();
+	pallet_session::GenesisConfig::<Test> { keys: keys.clone() }
+		.assimilate_storage(&mut t)
+		.unwrap();
 
-// 	let (pair2, _) = sp_core::sr25519::Pair::generate();
-// 	let (pair3, _) = sp_core::sr25519::Pair::generate();
-// 	pallet_balances::GenesisConfig::<Test> {
-// 		balances: vec![(pair1_funded.public(), 10), (pair2.public(), 20), (pair3.public(), 30)],
-// 	}
-// 	.assimilate_storage(&mut t)
-// 	.unwrap();
+	let (pair2, _) = sp_core::sr25519::Pair::generate();
+	let (pair3, _) = sp_core::sr25519::Pair::generate();
+	pallet_balances::GenesisConfig::<Test> {
+		balances: vec![(pair1_funded.public(), 10), (pair2.public(), 20), (pair3.public(), 30)],
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
 
-// 	sp_io::TestExternalities::new(t)
-// }
+	sp_io::TestExternalities::new(t)
+}
