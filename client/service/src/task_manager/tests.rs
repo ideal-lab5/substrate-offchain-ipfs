@@ -93,7 +93,7 @@ fn ensure_tasks_are_awaited_on_shutdown() {
 	let runtime = tokio::runtime::Runtime::new().unwrap();
 	let handle = runtime.handle().clone();
 
-	let ipfs_rt = tokio::runtime::Runtime::new();
+	let ipfs_rt = tokio::runtime::Runtime::new().unwrap();
 
 	let task_manager = new_task_manager(handle, ipfs_rt);
 	let spawn_handle = task_manager.spawn_handle();
@@ -113,7 +113,7 @@ fn ensure_keep_alive_during_shutdown() {
 	let runtime = tokio::runtime::Runtime::new().unwrap();
 	let handle = runtime.handle().clone();
 
-	let ipfs_rt = tokio::runtime::Runtime::new();
+	let ipfs_rt = tokio::runtime::Runtime::new().unwrap();
 
 	let mut task_manager = new_task_manager(handle, ipfs_rt);
 	let spawn_handle = task_manager.spawn_handle();
@@ -132,7 +132,7 @@ fn ensure_keep_alive_during_shutdown() {
 fn ensure_blocking_futures_are_awaited_on_shutdown() {
 	let runtime = tokio::runtime::Runtime::new().unwrap();
 	let handle = runtime.handle().clone();
-	let ipfs_rt = tokio::runtime::Runtime::new();
+	let ipfs_rt = tokio::runtime::Runtime::new().unwrap();
 
 	let task_manager = new_task_manager(handle, ipfs_rt);
 	let spawn_handle = task_manager.spawn_handle();
@@ -157,7 +157,7 @@ fn ensure_blocking_futures_are_awaited_on_shutdown() {
 fn ensure_no_task_can_be_spawn_after_terminate() {
 	let runtime = tokio::runtime::Runtime::new().unwrap();
 	let handle = runtime.handle().clone();
-	let ipfs_rt = tokio::runtime::Runtime::new();
+	let ipfs_rt = tokio::runtime::Runtime::new().unwrap();
 
 	let mut task_manager = new_task_manager(handle, ipfs_rt);
 	let spawn_handle = task_manager.spawn_handle();
@@ -178,7 +178,7 @@ fn ensure_no_task_can_be_spawn_after_terminate() {
 fn ensure_task_manager_future_ends_when_task_manager_terminated() {
 	let runtime = tokio::runtime::Runtime::new().unwrap();
 	let handle = runtime.handle().clone();
-	let ipfs_rt = tokio::runtime::Runtime::new();
+	let ipfs_rt = tokio::runtime::Runtime::new().unwrap();
 
 	let mut task_manager = new_task_manager(handle, ipfs_rt);
 	let spawn_handle = task_manager.spawn_handle();
@@ -199,7 +199,7 @@ fn ensure_task_manager_future_ends_when_task_manager_terminated() {
 fn ensure_task_manager_future_ends_with_error_when_essential_task_fails() {
 	let runtime = tokio::runtime::Runtime::new().unwrap();
 	let handle = runtime.handle().clone();
-	let ipfs_rt = tokio::runtime::Runtime::new();
+	let ipfs_rt = tokio::runtime::Runtime::new().unwrap();
 
 	let mut task_manager = new_task_manager(handle, ipfs_rt);
 	let spawn_handle = task_manager.spawn_handle();
@@ -224,7 +224,7 @@ fn ensure_task_manager_future_ends_with_error_when_essential_task_fails() {
 fn ensure_children_tasks_ends_when_task_manager_terminated() {
 	let runtime = tokio::runtime::Runtime::new().unwrap();
 	let handle = runtime.handle().clone();
-	let ipfs_rt = tokio::runtime::Runtime::new();
+	let ipfs_rt = tokio::runtime::Runtime::new().unwrap();
 
 	let mut task_manager = new_task_manager(handle.clone(), ipfs_rt.clone());
 	let child_1 = new_task_manager(handle.clone(), ipfs_rt.clone());
@@ -254,7 +254,7 @@ fn ensure_task_manager_future_ends_with_error_when_childs_essential_task_fails()
 	let runtime = tokio::runtime::Runtime::new().unwrap();
 	let handle = runtime.handle().clone();
 
-	let ipfs_rt = tokio::runtime::Runtime::new();
+	let ipfs_rt = tokio::runtime::Runtime::new().unwrap();
 
 	let mut task_manager = new_task_manager(handle.clone(), ipfs_rt.clone());
 	let child_1 = new_task_manager(handle.clone(), ipfs_rt.clone());
@@ -288,9 +288,9 @@ fn ensure_task_manager_future_continues_when_childs_not_essential_task_fails() {
 	let runtime = tokio::runtime::Runtime::new().unwrap();
 	let handle = runtime.handle().clone();
 
-	let ipfs_rt = tokio::runtime::Runtime::new();
+	let ipfs_rt = tokio::runtime::Runtime::new().unwrap();
 
-	let mut task_manager = new_task_manager(handle.clon, ipfs_rt.clone());
+	let mut task_manager = new_task_manager(handle.clone(), ipfs_rt.clone());
 	let child_1 = new_task_manager(handle.clone(), ipfs_rt.clone());
 	let spawn_handle_child_1 = child_1.spawn_handle();
 	let child_2 = new_task_manager(handle.clone(), ipfs_rt.clone());
