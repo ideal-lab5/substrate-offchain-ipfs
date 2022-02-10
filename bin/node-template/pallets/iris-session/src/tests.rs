@@ -315,7 +315,7 @@ fn iris_can_fetch_bytes_and_add_to_offchain_storage() {
 	}
 
 	t.execute_with(|| {
-		// WHEN: I invoke the create_storage_assetsrust- extrinsic
+		// WHEN: I invoke the create extrinsic
 		assert_ok!(IrisAssets::create(
 			Origin::signed(p.clone().public()),
 			p.clone().public(),
