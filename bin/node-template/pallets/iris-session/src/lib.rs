@@ -385,7 +385,7 @@ pub mod pallet {
 		/// The origin can be configured using the `AddRemoveOrigin` type in the
 		/// host runtime. Can also be set to sudo/root.
 		///
-		#[pallet::weight(0)]
+		#[pallet::weight(100)]
 		pub fn add_validator(origin: OriginFor<T>, validator_id: T::AccountId) -> DispatchResult {
 			T::AddRemoveOrigin::ensure_origin(origin)?;
 			Self::do_add_validator(validator_id.clone())?;
@@ -397,7 +397,7 @@ pub mod pallet {
 		///
 		/// The origin can be configured using the `AddRemoveOrigin` type in the
 		/// host runtime. Can also be set to sudo/root.
-		#[pallet::weight(0)]
+		#[pallet::weight(100)]
 		pub fn remove_validator(
 			origin: OriginFor<T>,
 			validator_id: T::AccountId,
@@ -411,7 +411,7 @@ pub mod pallet {
 		/// Add an approved validator again when it comes back online.
 		///
 		/// For this call, the dispatch origin must be the validator itself.
-		#[pallet::weight(0)]
+		#[pallet::weight(100)]
 		pub fn add_validator_again(
 			origin: OriginFor<T>,
 			validator_id: T::AccountId,
@@ -427,7 +427,7 @@ pub mod pallet {
 			Ok(())
 		}
 
-		#[pallet::weight(0)]
+		#[pallet::weight(100)]
 		pub fn join_storage_pool(
 			origin: OriginFor<T>,
 			pool_owner: <T::Lookup as StaticLookup>::Source,
@@ -459,7 +459,7 @@ pub mod pallet {
         /// * `id`: The AssetId (passed through from the create_storage_asset call)
         /// * `balance`: The balance (passed through from the create_storage_asset call)
         ///
-        #[pallet::weight(0)]
+        #[pallet::weight(100)]
         pub fn submit_ipfs_add_results(
             origin: OriginFor<T>,
             admin: <T::Lookup as StaticLookup>::Source,
@@ -503,7 +503,7 @@ pub mod pallet {
         /// * public_key: The IPFS node's public key
         /// * multiaddresses: A vector of multiaddresses associate with the public key
         ///
-        #[pallet::weight(0)]
+        #[pallet::weight(100)]
         pub fn submit_ipfs_identity(
             origin: OriginFor<T>,
             public_key: Vec<u8>,
@@ -521,7 +521,7 @@ pub mod pallet {
 		/// * `asset_id`: The asset id corresponding to the data that was pinned
 		/// * `pinner': The node claiming to have pinned the data
 		/// 
-		#[pallet::weight(0)]
+		#[pallet::weight(100)]
 		pub fn submit_ipfs_pin_result(
 			origin: OriginFor<T>,
 			asset_id: T::AssetId,
@@ -557,7 +557,7 @@ pub mod pallet {
         /// * `beneficiary`: The account that requested the data
         /// * `host`: The node's host where the data has been made available (RPC endpoint)
         ///
-        #[pallet::weight(0)]
+        #[pallet::weight(100)]
         pub fn submit_rpc_ready(
             origin: OriginFor<T>,
 			asset_id: T::AssetId,

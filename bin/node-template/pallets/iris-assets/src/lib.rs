@@ -206,7 +206,7 @@ pub mod pallet {
         /// * `id`: (temp) the unique id of the asset class -> should be generated instead
         /// * `balance`: the balance the owner is willing to use to back the asset class which will be created
         ///
-        #[pallet::weight(0)]
+        #[pallet::weight(100)]
         pub fn create(
             origin: OriginFor<T>,
             admin: <T::Lookup as StaticLookup>::Source,
@@ -239,7 +239,7 @@ pub mod pallet {
         /// * cid: a cid owned by the origin, for which an asset class exists
         /// * amount: the number of tickets to mint
         ///
-        #[pallet::weight(0)]
+        #[pallet::weight(100)]
         pub fn mint(
             origin: OriginFor<T>,
             beneficiary: <T::Lookup as StaticLookup>::Source,
@@ -264,7 +264,7 @@ pub mod pallet {
         /// * `owner`: The owner of the content to be fetched 
         /// * `asset_id`: The asset id identifying the content
         /// 
-		#[pallet::weight(0)]
+		#[pallet::weight(100)]
 		pub fn request_bytes(
 			origin: OriginFor<T>,
 			owner: <T::Lookup as StaticLookup>::Source,
@@ -289,7 +289,7 @@ pub mod pallet {
         /// * `id`: The AssetId (passed through from the create_storage_asset call)
         /// * `balance`: The balance (passed through from the create_storage_asset call)
         ///
-        #[pallet::weight(0)]
+        #[pallet::weight(100)]
         pub fn submit_ipfs_add_results(
             origin: OriginFor<T>,
             admin: <T::Lookup as StaticLookup>::Source,
@@ -317,7 +317,7 @@ pub mod pallet {
         /// * asset_owner: The owner of the asset class
         /// * asset_id: The asset id of some asset class
         ///
-        #[pallet::weight(0)]
+        #[pallet::weight(100)]
         pub fn insert_pin_request(
             origin: OriginFor<T>,
             acct: T::AccountId,
