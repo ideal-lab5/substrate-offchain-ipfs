@@ -452,12 +452,10 @@ construct_runtime!(
 		TransactionPayment: pallet_transaction_payment::{Pallet, Storage},
 		Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>},
 		Iris: pallet_iris_assets::{Pallet, Call, Storage, Event<T>},
-		IrisSession: pallet_iris_session::{Pallet, Call, Storage, Event<T>, Config<T>},
+		IrisSession: pallet_iris_session::{Pallet, Call, Storage, Event<T>, Config<T>, ValidateUnsigned},
 		Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>},
 		Assets: pallet_assets::{Pallet, Storage, Event<T>},
 		ImOnline: pallet_im_online::{Pallet, Call, Storage, Event<T>, ValidateUnsigned, Config<T>},
-		// Offences: pallet_offences::{Pallet, Storage, Event},
-		// Historical: pallet_session_historical::{Pallet},
 		Aura: pallet_aura::{Pallet, Config<T>},
 		Grandpa: pallet_grandpa::{Pallet, Call, Storage, Config, Event},
 	}

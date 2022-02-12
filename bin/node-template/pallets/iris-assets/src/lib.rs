@@ -25,33 +25,17 @@ use frame_support::{
 };
 use frame_system::{
     self as system, ensure_signed,
-    offchain::{
-        SendSignedTransaction, 
-        Signer,
-    },
 };
 
-use sp_core::{
-    offchain::{
-        Duration, IpfsRequest, IpfsResponse, OpaqueMultiaddr, Timestamp, StorageKind,
-    },
-    crypto::KeyTypeId,
-    Bytes,
-};
+use sp_core::offchain::OpaqueMultiaddr;
 
-use sp_io::offchain::timestamp;
 use sp_runtime::{
-    offchain::{ 
-        ipfs,
-    },
     RuntimeDebug,
     traits::StaticLookup,
 };
 use sp_std::{
-    str,
     vec::Vec,
     prelude::*,
-    convert::TryInto,
 };
 
 #[derive(Encode, Decode, RuntimeDebug, PartialEq, TypeInfo)]
@@ -336,6 +320,7 @@ pub mod pallet {
         #[pallet::weight(0)]
         pub fn insert_pin_request(
             origin: OriginFor<T>,
+            acct: T::AccountId,
             asset_owner: T::AccountId,
             asset_id: T::AssetId,
         ) -> DispatchResult {
@@ -347,7 +332,7 @@ pub mod pallet {
             );
             <DataQueue<T>>::mutate(
                 |queue| queue.push(DataCommand::PinCID(
-                    who.clone(),
+                    acct.clone(),
                     asset_id.clone(),
                     cid.clone(),
                 )));

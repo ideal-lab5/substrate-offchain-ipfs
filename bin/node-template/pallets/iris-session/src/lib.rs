@@ -46,7 +46,6 @@ use sp_runtime::traits::{Convert, Zero};
 use sp_staking::offence::{Offence, OffenceError, ReportOffence};
 use sp_std::{
 	collections::{ btree_set::BTreeSet, btree_map::BTreeMap },
-	convert::TryInto,
 	str,
 	vec::Vec,
 	prelude::*
@@ -64,6 +63,7 @@ use frame_system::{
 	offchain::{
 		SendSignedTransaction,
 		Signer,
+		SubmitTransaction,
 	}
 };
 use sp_io::offchain::timestamp;
@@ -286,6 +286,24 @@ pub mod pallet {
 		RequestJoinStoragePoolSuccess(T::AccountId, T::AssetId),
 	}
 
+	
+	#[pallet::validate_unsigned]
+	impl<T: Config> ValidateUnsigned for Pallet<T> {
+		type Call = Call<T>;
+
+		/// Validate unsigned call to this module.
+		///
+		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+			if let Call::submit_rpc_ready { asset_id } = call {
+				Self::validate_transaction_parameters()
+			} else if let Call::submit_ipfs_identity{ public_key, multiaddresses } = call {
+				Self::validate_transaction_parameters()
+			} else {
+				InvalidTransaction::Call.into()
+			}
+		}
+	}
+
 	// Errors inform users that something went wrong.
 	#[pallet::error]
 	pub enum Error<T> {
@@ -425,7 +443,7 @@ pub mod pallet {
 				sp.push(who.clone());
 			});
 			let owner = T::Lookup::lookup(pool_owner)?;
-			<pallet_iris_assets::Pallet<T>>::insert_pin_request(new_origin, owner, pool_id)?;
+			<pallet_iris_assets::Pallet<T>>::insert_pin_request(new_origin, who.clone(), owner, pool_id)?;
 			Self::deposit_event(Event::RequestJoinStoragePoolSuccess(who.clone(), pool_id.clone()));
 			Ok(())
 		}
@@ -449,8 +467,8 @@ pub mod pallet {
             id: T::AssetId,
             balance: T::Balance,
         ) -> DispatchResult {
+			// TODO: explore consequences of changing to ensure_root
 			let who = ensure_signed(origin)?;
-			// TODO: Need some type of verification to prove the caller pinned the content
 			let new_origin = system::RawOrigin::Signed(who.clone()).into();
 			// creates the asset class
             <pallet_iris_assets::Pallet<T>>::submit_ipfs_add_results(
@@ -460,15 +478,17 @@ pub mod pallet {
 				id,
 				balance,
 			)?;
-			// award point to self
+			// award point to all validators
 			if let Some(active_era) = ActiveEra::<T>::get() {
 				<ErasRewardPoints<T>>::mutate(active_era.clone(), id, |era_rewards| {
-					// increment total session rewards (used to find non-contributing validators)
-					SessionParticipation::<T>::mutate(active_era.clone(), |participants| {
-						participants.push(who.clone());
-					});
-					*era_rewards.individual.entry(who.clone()).or_default() += 1;
-					era_rewards.total += 1;
+					// reward all validators
+					for v in <Validators::<T>>::get() {
+						SessionParticipation::<T>::mutate(active_era.clone(), |participants| {
+							participants.push(v.clone());
+						});
+						*era_rewards.individual.entry(v.clone()).or_default() += 1;
+						era_rewards.total += 1;
+					}
 				});
 			} else {
 				// error
@@ -496,29 +516,35 @@ pub mod pallet {
             Ok(())
         }
 
+		/// should only be callable by validator nodes (TODO)
+		/// 
+		/// * `asset_id`: The asset id corresponding to the data that was pinned
+		/// * `pinner': The node claiming to have pinned the data
+		/// 
 		#[pallet::weight(0)]
 		pub fn submit_ipfs_pin_result(
 			origin: OriginFor<T>,
 			asset_id: T::AssetId,
+			pinner: T::AccountId,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			// verify they are a candidate storage provider
 			let candidate_storage_providers = <QueuedStorageProviders::<T>>::get(asset_id.clone());
-			ensure!(candidate_storage_providers.contains(&who), Error::<T>::NotACandidate);
+			ensure!(candidate_storage_providers.contains(&pinner), Error::<T>::NotACandidate);
 			// verify not already pinning the content
 			let current_pinners = <Pinners::<T>>::get(asset_id.clone());
-			ensure!(!current_pinners.contains(&who), Error::<T>::AlreadyPinned);
+			ensure!(!current_pinners.contains(&pinner), Error::<T>::AlreadyPinned);
 			// TODO: we need a better scheme for *generating* pool ids -> should always be unique (cid + owner maybe?)
 			<Pinners<T>>::mutate(asset_id.clone(), |p| {
-				p.push(who.clone());
+				p.push(pinner.clone());
 			});
-			// award point to self
+			// award point to pinner
 			if let Some(active_era) = ActiveEra::<T>::get() {
 				SessionParticipation::<T>::mutate(active_era.clone(), |p| {
-					p.push(who.clone());
+					p.push(pinner.clone());
 				});
 				<ErasRewardPoints<T>>::mutate(active_era, asset_id, |era_rewards| {
-					*era_rewards.individual.entry(who.clone()).or_default() += 1;
+					*era_rewards.individual.entry(pinner.clone()).or_default() += 1;
 					era_rewards.total += 1;
 				});
 			}
@@ -536,7 +562,7 @@ pub mod pallet {
             origin: OriginFor<T>,
 			asset_id: T::AssetId,
         ) -> DispatchResult {
-            ensure_signed(origin)?;
+            // ensure_signed(origin)?;
 			if let Some(active_era) = ActiveEra::<T>::get() {
 				<ErasRewardPoints<T>>::mutate(active_era.clone(), asset_id.clone(), |era_rewards| {
 					// reward all active storage providers
@@ -558,6 +584,7 @@ pub mod pallet {
 }
 
 impl<T: Config> Pallet<T> {
+
 	fn initialize_validators(validators: &[T::AccountId]) {
 		assert!(validators.len() > 1, "At least 2 validators should be initialized");
 		assert!(<Validators<T>>::get().is_empty(), "Validators are already initialized!");
@@ -653,7 +680,8 @@ impl<T: Config> Pallet<T> {
 				let pinners = <Pinners<T>>::get(assetid.clone());
 				let pinner_candidate_intersection = 
 					candidates.into_iter().filter(|c| pinners.contains(c)).collect::<Vec<T::AccountId>>();
-				// need to only move candidates that have actually proved they pinned the content	
+				log::info!("Adding {:?} more storage providers", pinner_candidate_intersection.len());
+				// need to only move candidates that have actually proved they pinned the content
 				<StorageProviders::<T>>::insert(assetid.clone(), pinner_candidate_intersection);
 			} 
 		}
@@ -673,6 +701,13 @@ impl<T: Config> Pallet<T> {
 				}
 			}
 		}
+	}
+
+	fn validate_transaction_parameters() -> TransactionValidity {
+		ValidTransaction::with_tag_prefix("rpc_ready")
+			.longevity(5)
+			.propagate(true)
+			.build()
 	}
 
 	/// implementation for RPC runtime API to retrieve bytes from the node's local storage
@@ -748,6 +783,7 @@ impl<T: Config> Pallet<T> {
                     }
                 }
             }
+			
             let signer = Signer::<T, T::AuthorityId>::all_accounts();
             if !signer.can_sign() {
                 log::error!(
@@ -768,10 +804,8 @@ impl<T: Config> Pallet<T> {
                     Err(e) => log::error!("Failed to submit transaction: {:?}",  e),
                 }
             }
-
         }
         Ok(())
-
     }
 
 	/// process any requests in the DataQueue
@@ -840,10 +874,10 @@ impl<T: Config> Pallet<T> {
 				},
 				DataCommand::CatBytes(requestor, owner, asset_id) => {
 					// fetch ipfs id
-					let (public_key, addrs) = 
+					let public_key = 
 						if let IpfsResponse::Identity(public_key, addrs) = 
 							Self::ipfs_request(IpfsRequest::Identity, deadline)? {
-						(public_key, addrs)
+						public_key
 					} else {
 						unreachable!("only `Identity` is a valid response type.");
 					};
@@ -867,26 +901,11 @@ impl<T: Config> Pallet<T> {
 									&cid,
 									&data,
 								);
-								
-								let signer = Signer::<T, T::AuthorityId>::all_accounts();
-								if !signer.can_sign() {
-									log::error!(
-										"No local accounts available. Consider adding one via `author_insertKey` RPC.",
-									);
-								}
-								let results = signer.send_signed_transaction(|_account| { 
-									Call::submit_rpc_ready {
-										// beneficiary: requestor.clone(),
-										asset_id: asset_id.clone(),
-									}
-								});
-						
-								for (_, res) in &results {
-									match res {
-										Ok(()) => log::info!("Submitted ipfs results"),
-										Err(e) => log::error!("Failed to submit transaction: {:?}",  e),
-									}
-								}
+								let call = Call::submit_rpc_ready {
+									asset_id: asset_id.clone(),
+								};
+								SubmitTransaction::<T, Call<T>>::submit_unsigned_transaction(call.into())
+									.map_err(|()| Error::<T>::CantCreateRequest)?;
 							},
 							Ok(_) => unreachable!("only CatBytes can be a response for that request type."),
 							Err(e) => log::error!("IPFS: cat error: {:?}", e),
@@ -904,7 +923,7 @@ impl<T: Config> Pallet<T> {
 						} else {
 							unreachable!("only `Identity` is a valid response type.");
 						};
-						let expected_pub_key = <SubstrateIpfsBridge::<T>>::get(acct);
+						let expected_pub_key = <SubstrateIpfsBridge::<T>>::get(acct.clone());
 						// todo: create new error enum if this is the route i choose
 						ensure!(public_key == expected_pub_key, Error::<T>::BadOrigin);
 						match Self::ipfs_request(IpfsRequest::InsertPin(cid.clone(), false), deadline) {
@@ -919,6 +938,7 @@ impl<T: Config> Pallet<T> {
 								let results = signer.send_signed_transaction(|_account| { 
 									Call::submit_ipfs_pin_result{
 										asset_id: asset_id,
+										pinner: acct.clone(),
 									}
 								});
 						
