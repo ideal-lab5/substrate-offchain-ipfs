@@ -693,7 +693,8 @@ impl<T: Config> Pallet<T> {
 						*v += 1;
 					});
 				} else {
-					Self::mark_for_removal(acct);
+					// TODO
+					Self::do_remove_validator(acct);
 				}
 			}
 		}
