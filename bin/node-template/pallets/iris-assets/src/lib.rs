@@ -320,7 +320,6 @@ pub mod pallet {
         #[pallet::weight(100)]
         pub fn insert_pin_request(
             origin: OriginFor<T>,
-            acct: T::AccountId,
             asset_owner: T::AccountId,
             asset_id: T::AssetId,
         ) -> DispatchResult {
@@ -331,8 +330,8 @@ pub mod pallet {
                 asset_id.clone(),
             );
             <DataQueue<T>>::mutate(
-                |queue| queue.push(DataCommand::PinCID(
-                    acct.clone(),
+                |queue| queue.push(DataCommand::PinCID( 
+                    who.clone(),
                     asset_id.clone(),
                     cid.clone(),
                 )));

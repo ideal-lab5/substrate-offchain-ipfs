@@ -10,9 +10,6 @@
 //! node has sufficient storage capacity to successfully pin the underlying CID of the asset class,
 //! then that node is considered a storage provider as long as it is online.
 //! 
-//! Temporaraily, this pallet is in a weird limbo between proof of authority and proof of stake
-//! without actually verifying any quantitative measure of storage capacity
-//! 
 //! The Iris Session Pallet allows addition and removal of
 //! storage providers via extrinsics (transaction calls), in
 //! Substrate-based PoA networks. It also integrates with the im-online pallet
@@ -438,12 +435,11 @@ pub mod pallet {
 			let new_origin = system::RawOrigin::Signed(who.clone()).into();
 			let candidate_storage_providers = <QueuedStorageProviders::<T>>::get(pool_id.clone());
 			ensure!(!candidate_storage_providers.contains(&who), Error::<T>::AlreadyACandidate);
-			// TODO: we need a better scheme for *generating* pool ids -> should always be unique (cid + owner maybe?)
 			<QueuedStorageProviders<T>>::mutate(pool_id.clone(), |sp| {
 				sp.push(who.clone());
 			});
 			let owner = T::Lookup::lookup(pool_owner)?;
-			<pallet_iris_assets::Pallet<T>>::insert_pin_request(new_origin, who.clone(), owner, pool_id)?;
+			<pallet_iris_assets::Pallet<T>>::insert_pin_request(new_origin, owner, pool_id).map_err(|_| Error::<T>::CantCreateRequest);
 			Self::deposit_event(Event::RequestJoinStoragePoolSuccess(who.clone(), pool_id.clone()));
 			Ok(())
 		}
@@ -571,8 +567,8 @@ pub mod pallet {
 							p.push(k.clone());
 						});
 						*era_rewards.individual.entry(k.clone()).or_default() += 1;
+						era_rewards.total += 1;
 					}
-					era_rewards.total += 1;
 				});
 			} else {
 				// error -> no active era found
@@ -924,7 +920,6 @@ impl<T: Config> Pallet<T> {
 							unreachable!("only `Identity` is a valid response type.");
 						};
 						let expected_pub_key = <SubstrateIpfsBridge::<T>>::get(acct.clone());
-						// todo: create new error enum if this is the route i choose
 						ensure!(public_key == expected_pub_key, Error::<T>::BadOrigin);
 						match Self::ipfs_request(IpfsRequest::InsertPin(cid.clone(), false), deadline) {
 							Ok(IpfsResponse::Success) => {

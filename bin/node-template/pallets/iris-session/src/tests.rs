@@ -164,6 +164,8 @@ fn iris_session_join_storage_pool() {
 			p.clone().public(),
 			id.clone(),
 		));
+		// AND: I receive a reward point
+		assert_eq!(crate::ErasRewardPoints::<Test>::get(0).p.clone.public(), 1);
 	});
 }
 
@@ -340,13 +342,25 @@ fn iris_can_fetch_bytes_and_add_to_offchain_storage() {
 			id.clone(),
 			balance.clone(),
 		));
+		// AND: A validator stores the data
+		assert_ok!(IrisSession::join_storage_pool(
+			Origin::signed(p.clone().public()),
+			p.clone().public(),
+			id.clone(),
+		));
 		// AND: I request the owned content from iris
 		assert_ok!(IrisAssets::request_bytes(
 			Origin::signed(p.clone().public()),
 			p.clone().public(),
 			id.clone(),
 		));
-		// THEN: the offchain worker adds data to IPFS
+		// THEN: the offchain worker proxies IPFS requests
 		assert_ok!(IrisSession::handle_data_requests());
+		// AND: Each storage provider receives a reward point
+		let eras_reward_points = crate::ErasRewardPoints::<Test>::get(0, id.clone());
+		assert_eq!(3, eras_reward_points.total);
+		for validator in crate::Validators::<Test>::get() {
+			assert_eq!(1, eras_reward_points.individual.entry(validator));
+		}
 	});	
 }
