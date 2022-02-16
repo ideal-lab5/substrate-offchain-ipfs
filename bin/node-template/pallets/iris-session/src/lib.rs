@@ -291,9 +291,9 @@ pub mod pallet {
 		/// Validate unsigned call to this module.
 		///
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-			if let Call::submit_rpc_ready { asset_id } = call {
+			if let Call::submit_rpc_ready { .. } = call {
 				Self::validate_transaction_parameters()
-			} else if let Call::submit_ipfs_identity{ public_key, multiaddresses } = call {
+			} else if let Call::submit_ipfs_identity{ .. } = call {
 				Self::validate_transaction_parameters()
 			} else {
 				InvalidTransaction::Call.into()
@@ -433,13 +433,23 @@ pub mod pallet {
 			// submit a request to join a storage pool in the next session
 			let who = ensure_signed(origin)?;
 			let new_origin = system::RawOrigin::Signed(who.clone()).into();
-			let candidate_storage_providers = <QueuedStorageProviders::<T>>::get(pool_id.clone());
-			ensure!(!candidate_storage_providers.contains(&who), Error::<T>::AlreadyACandidate);
+			// if the node is already a candidate, do not proceed;
+			ensure!(
+				!<QueuedStorageProviders::<T>>::get(pool_id.clone()).contains(&who),
+				Error::<T>::AlreadyACandidate,
+			);
+			// if the node is already a storage provider, do not proceed
+			ensure!(
+				!<StorageProviders::<T>>::get(pool_id.clone()).contains(&who),
+				Error::<T>::AlreadyPinned,
+			);
+
+			let owner = T::Lookup::lookup(pool_owner)?;
+			<pallet_iris_assets::Pallet<T>>::insert_pin_request(new_origin, owner, pool_id).map_err(|_| Error::<T>::CantCreateRequest)?;
+
 			<QueuedStorageProviders<T>>::mutate(pool_id.clone(), |sp| {
 				sp.push(who.clone());
 			});
-			let owner = T::Lookup::lookup(pool_owner)?;
-			<pallet_iris_assets::Pallet<T>>::insert_pin_request(new_origin, owner, pool_id).map_err(|_| Error::<T>::CantCreateRequest);
 			Self::deposit_event(Event::RequestJoinStoragePoolSuccess(who.clone(), pool_id.clone()));
 			Ok(())
 		}
@@ -463,7 +473,6 @@ pub mod pallet {
             id: T::AssetId,
             balance: T::Balance,
         ) -> DispatchResult {
-			// TODO: explore consequences of changing to ensure_root
 			let who = ensure_signed(origin)?;
 			let new_origin = system::RawOrigin::Signed(who.clone()).into();
 			// creates the asset class
@@ -523,7 +532,7 @@ pub mod pallet {
 			asset_id: T::AssetId,
 			pinner: T::AccountId,
 		) -> DispatchResult {
-			let who = ensure_signed(origin)?;
+			let _who = ensure_signed(origin)?;
 			// verify they are a candidate storage provider
 			let candidate_storage_providers = <QueuedStorageProviders::<T>>::get(asset_id.clone());
 			ensure!(candidate_storage_providers.contains(&pinner), Error::<T>::NotACandidate);
@@ -555,7 +564,7 @@ pub mod pallet {
         ///
         #[pallet::weight(100)]
         pub fn submit_rpc_ready(
-            origin: OriginFor<T>,
+            _origin: OriginFor<T>,
 			asset_id: T::AssetId,
         ) -> DispatchResult {
             // ensure_signed(origin)?;
@@ -570,10 +579,7 @@ pub mod pallet {
 						era_rewards.total += 1;
 					}
 				});
-			} else {
-				// error -> no active era found
 			}
-            // Self::deposit_event(Event::DataReady(beneficiary));
             Ok(())
         }
 	}
@@ -669,17 +675,21 @@ impl<T: Config> Pallet<T> {
 	/// TODO: this undoubtedly will not scale very well 
 	fn select_candidate_storage_providers() {
 		// if there are candidate storage providers => for each candidate that pinned the file, move them to storage providers
-		for assetid in <pallet_iris_assets::Pallet<T>>::asset_ids().into_iter() {
+		for asset_id in <pallet_iris_assets::Pallet<T>>::asset_ids().into_iter() {
 			// if there are candidates for the asset id
-			if <QueuedStorageProviders<T>>::contains_key(assetid.clone()) {
-				let candidates = <QueuedStorageProviders<T>>::get(assetid.clone());
-				let pinners = <Pinners<T>>::get(assetid.clone());
-				let pinner_candidate_intersection = 
+			if <QueuedStorageProviders<T>>::contains_key(asset_id.clone()) {
+				let candidates = <QueuedStorageProviders<T>>::get(asset_id.clone());
+				let pinners = <Pinners<T>>::get(asset_id.clone());
+				let mut pinner_candidate_intersection = 
 					candidates.into_iter().filter(|c| pinners.contains(c)).collect::<Vec<T::AccountId>>();
-				log::info!("Adding {:?} more storage providers", pinner_candidate_intersection.len());
-				// need to only move candidates that have actually proved they pinned the content
-				<StorageProviders::<T>>::insert(assetid.clone(), pinner_candidate_intersection);
-			} 
+				// <StorageProviders::<T>>::insert(asset_id.clone(), pinner_candidate_intersection);
+				<StorageProviders::<T>>::mutate(asset_id.clone(), |sps| {
+					sps.append(&mut pinner_candidate_intersection);
+				});
+				<QueuedStorageProviders<T>>::mutate(asset_id.clone(), |qsps| {
+					*qsps = Vec::new();
+				});
+			}
 		}
 	}
 
@@ -693,15 +703,21 @@ impl<T: Config> Pallet<T> {
 						*v += 1;
 					});
 				} else {
-					// TODO
-					Self::do_remove_validator(acct);
+					let mut validators = <Validators<T>>::get();
+					// Ensuring that the post removal, target validator count doesn't go
+					// below the minimum.
+					if validators.len().saturating_sub(1) as u32 >= T::MinAuthorities::get() {
+						validators.retain(|v| *v != acct.clone());
+						<Validators<T>>::put(validators);
+						log::debug!(target: LOG_TARGET, "Validator removal initiated.");
+					}
 				}
 			}
 		}
 	}
 
 	fn validate_transaction_parameters() -> TransactionValidity {
-		ValidTransaction::with_tag_prefix("rpc_ready")
+		ValidTransaction::with_tag_prefix("iris")
 			.longevity(5)
 			.propagate(true)
 			.build()
@@ -872,7 +888,7 @@ impl<T: Config> Pallet<T> {
 				DataCommand::CatBytes(requestor, owner, asset_id) => {
 					// fetch ipfs id
 					let public_key = 
-						if let IpfsResponse::Identity(public_key, addrs) = 
+						if let IpfsResponse::Identity(public_key, _addrs) = 
 							Self::ipfs_request(IpfsRequest::Identity, deadline)? {
 						public_key
 					} else {
@@ -882,41 +898,38 @@ impl<T: Config> Pallet<T> {
 					let expected_pub_key = <SubstrateIpfsBridge::<T>>::get(requestor.clone());
 					ensure!(public_key == expected_pub_key, Error::<T>::BadOrigin);
 
-					if let cid = <pallet_iris_assets::Pallet<T>>::asset_class_ownership(
+					let cid = <pallet_iris_assets::Pallet<T>>::asset_class_ownership(
 						owner.clone(), asset_id.clone()
-					) {	
-						ensure!(
-							owner.clone() == <pallet_iris_assets::Pallet<T>>::asset_access(requestor.clone(), asset_id.clone()),
-							Error::<T>::InsufficientBalance
-						);
-						match Self::ipfs_request(IpfsRequest::CatBytes(cid.clone()), deadline) {
-							Ok(IpfsResponse::CatBytes(data)) => {
-								log::info!("IPFS: Fetched data from IPFS.");
-								// add to offchain index
-								sp_io::offchain::local_storage_set(
-									StorageKind::PERSISTENT,
-									&cid,
-									&data,
-								);
-								let call = Call::submit_rpc_ready {
-									asset_id: asset_id.clone(),
-								};
-								SubmitTransaction::<T, Call<T>>::submit_unsigned_transaction(call.into())
-									.map_err(|()| Error::<T>::CantCreateRequest)?;
-							},
-							Ok(_) => unreachable!("only CatBytes can be a response for that request type."),
-							Err(e) => log::error!("IPFS: cat error: {:?}", e),
-						}
-					} else {
-						log::error!("the provided owner/cid does not map to a valid asset id: {:?}, {:?}", owner, asset_id)
+					);	
+					ensure!(
+						owner.clone() == <pallet_iris_assets::Pallet<T>>::asset_access(requestor.clone(), asset_id.clone()),
+						Error::<T>::InsufficientBalance
+					);
+					match Self::ipfs_request(IpfsRequest::CatBytes(cid.clone()), deadline) {
+						Ok(IpfsResponse::CatBytes(data)) => {
+							log::info!("IPFS: Fetched data from IPFS.");
+							// add to offchain index
+							sp_io::offchain::local_storage_set(
+								StorageKind::PERSISTENT,
+								&cid,
+								&data,
+							);
+							let call = Call::submit_rpc_ready {
+								asset_id: asset_id.clone(),
+							};
+							SubmitTransaction::<T, Call<T>>::submit_unsigned_transaction(call.into())
+								.map_err(|()| Error::<T>::CantCreateRequest)?;
+						},
+						Ok(_) => unreachable!("only CatBytes can be a response for that request type."),
+						Err(e) => log::error!("IPFS: cat error: {:?}", e),
 					}
 				},
 				DataCommand::PinCID(acct, asset_id, cid) => {
 					if sp_io::offchain::is_validator() {
-						let (public_key, addrs) = 
-							if let IpfsResponse::Identity(public_key, addrs) = 
+						let public_key = 
+							if let IpfsResponse::Identity(public_key, _) = 
 								Self::ipfs_request(IpfsRequest::Identity, deadline)? {
-							(public_key, addrs)
+							public_key
 						} else {
 							unreachable!("only `Identity` is a valid response type.");
 						};

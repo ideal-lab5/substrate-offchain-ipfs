@@ -192,7 +192,6 @@ pub fn new_full(mut config: Configuration) -> Result<TaskManager, ServiceError> 
 			block_announce_validator_builder: None,
 			warp_sync: Some(warp_sync),
 		})?;
-	let keystore = keystore_container.sync_keystore();
 	if config.offchain_worker.enabled {
 		sc_service::build_offchain_workers(
 			&config,

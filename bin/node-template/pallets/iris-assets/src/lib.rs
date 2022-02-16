@@ -65,10 +65,6 @@ pub mod pallet {
 	use frame_support::{dispatch::DispatchResult, pallet_prelude::*};
 	use frame_system::{
         pallet_prelude::*,
-        offchain::{
-            AppCrypto,
-            CreateSignedTransaction,
-        },
     };
 	use sp_core::offchain::OpaqueMultiaddr;
 	use sp_std::{str, vec::Vec};
@@ -156,6 +152,7 @@ pub mod pallet {
         AssetCreated(T::AssetId),
         /// A node has published ipfs identity results on chain
         PublishedIdentity(T::AccountId),
+        QueuedDataToPin,
 	}
 
 	#[pallet::error]
@@ -335,6 +332,9 @@ pub mod pallet {
                     asset_id.clone(),
                     cid.clone(),
                 )));
+
+            Self::deposit_event(Event::QueuedDataToPin);
+            
             Ok(())
         }
 

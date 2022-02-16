@@ -165,7 +165,9 @@ fn iris_session_join_storage_pool() {
 			id.clone(),
 		));
 		// AND: I receive a reward point
-		assert_eq!(crate::ErasRewardPoints::<Test>::get(0).p.clone.public(), 1);
+		let era_reward_points = crate::ErasRewardPoints::<Test>::get(0, id.clone());
+		assert_eq!(era_reward_points.total, 1);
+		assert_eq!(era_reward_points.individual.entry(p.clone.public()), 1);
 	});
 }
 
@@ -185,8 +187,8 @@ fn iris_session_submit_rpc_ready_works_for_valid_values() {
 // test OCW functionality
 // can add bytes to network
 #[test]
-fn iris_can_add_bytes_to_ipfs() {
-	let v0 = sp_core::sr25519::Pair::generate_with_phrase(Some("0")).0.public();
+fn iris_session_validators_receive_reward_when_add_bytes_to_ipfs() {
+	// new keypair
 	let (p, _) = sp_core::sr25519::Pair::generate();
 	let (offchain, state) = testing::TestOffchainExt::new();
 	let (pool, _) = testing::TestTransactionPoolExt::new();
@@ -252,7 +254,10 @@ fn iris_can_add_bytes_to_ipfs() {
 		assert_ok!(IrisSession::handle_data_requests());
 		// AND: each validator is given a reward point
 		let eras_reward_points = crate::ErasRewardPoints::<Test>::get(0, id.clone());
-		assert_eq!(1, eras_reward_points.total);
+		assert_eq!(3, eras_reward_points.total);
+		for validator in crate::Validators::<Test>::get() {
+			assert_eq!(1, eras_reward_points.individual.entry(validator));
+		}
 	});
 }
 

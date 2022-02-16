@@ -15,15 +15,14 @@ use sp_core::{crypto::KeyTypeId, OpaqueMetadata, Encode, Bytes};
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
 	traits::{
-		AccountIdLookup, 
-		BlakeTwo256, 
+		AccountIdLookup,
+		BlakeTwo256,
 		Block as BlockT, 
-		IdentifyAccount, 
-		NumberFor, 
-		Verify, 
-		SaturatedConversion, 
-		OpaqueKeys, 
-		ConvertInto,
+		IdentifyAccount,
+		NumberFor,
+		Verify,
+		SaturatedConversion,
+		OpaqueKeys,
 	 },
 	transaction_validity::{TransactionSource, TransactionValidity, TransactionPriority},
 	ApplyExtrinsicResult, MultiSignature,
@@ -33,7 +32,6 @@ use sp_std::prelude::*;
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 use frame_system::EnsureRoot;
-use pallet_session::historical as pallet_session_historical;
 use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
 
 // A few exports that help ease life for downstream crates.
