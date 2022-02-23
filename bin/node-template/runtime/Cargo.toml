@@ -29,7 +29,11 @@ pallet-iris-assets = { version = "1.0.0", default-features = false, path = "../p
 pallet-iris-session = { version = "1.0.0", default-features = false, path = "../pallets/iris-session" }
 pallet-timestamp = { version = "4.0.0-dev", default-features = false, path = "../../../frame/timestamp" }
 pallet-transaction-payment = { version = "4.0.0-dev", default-features = false, path = "../../../frame/transaction-payment" }
+pallet-contracts = { version = "4.0.0-dev", default-features = false, path = "../../../frame/contracts" }
+pallet-contracts-primitives = { version = "4.0.0-dev", default-features = false, path = "../../../frame/contracts/common/" }
 
+# primitives
+node-primitives = { version = "2.0.0", default-features = false, path = "../../node/primitives" }
 frame-system = { version = "4.0.0-dev", default-features = false, path = "../../../frame/system" }
 frame-executive = { version = "4.0.0-dev", default-features = false, path = "../../../frame/executive" }
 sp-api = { version = "4.0.0-dev", default-features = false, path = "../../../primitives/api" }
@@ -48,9 +52,11 @@ sp-version = { version = "4.0.0-dev", default-features = false, path = "../../..
 frame-system-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, path = "../../../frame/system/rpc/runtime-api/" }
 pallet-transaction-payment-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, path = "../../../frame/transaction-payment/rpc/runtime-api/" }
 pallet-iris-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, path = "../pallets/iris-session/rpc/runtime-api/" }
+pallet-contracts-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, path = "../../../frame/contracts/rpc/runtime-api/" }
 # Used for runtime benchmarking
 frame-benchmarking = { version = "4.0.0-dev", default-features = false, path = "../../../frame/benchmarking", optional = true }
 frame-system-benchmarking = { version = "4.0.0-dev", default-features = false, path = "../../../frame/system/benchmarking", optional = true }
+
 hex-literal = { version = "0.3.1", optional = true }
 
 log = { version = "0.4.14", default-features = false }
@@ -92,6 +98,9 @@ std = [
 	"sp-std/std",
 	"sp-transaction-pool/std",
 	"sp-version/std",
+	"pallet-contracts/std",
+	"pallet-contracts-primitives/std",
+	"pallet-contracts-rpc-runtime-api/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking",
@@ -105,4 +114,11 @@ runtime-benchmarks = [
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-assets/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
+	"pallet-contracts/runtime-benchmarks",
 ]
+try-runtime = [
+	"pallet-contracts/try-runtime",
+]
+# Make contract callable functions marked as __unstable__ available. Do not enable
+# on live chains as those are subject to change.
+contracts-unstable-interface = ["pallet-contracts/unstable-interface"]
