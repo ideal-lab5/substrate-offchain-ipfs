@@ -123,13 +123,11 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 
 // Build genesis storage according to the mock runtime.
-pub fn new_test_ext_funded(pair1_funded: sp_core::sr25519::Pair) -> sp_io::TestExternalities {
+pub fn new_test_ext_funded(pairs: Vec<(sp_core::sr25519::Public, u64)>) -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::default().build_storage::<Test>().unwrap();
-	// let (pair1, _) = sp_core::sr25519::Pair::generate();
-	let (pair2, _) = sp_core::sr25519::Pair::generate();
-	let (pair3, _) = sp_core::sr25519::Pair::generate();
+
 	pallet_balances::GenesisConfig::<Test> {
-		balances: vec![(pair1_funded.clone().public(), 10), (pair2.public(), 20), (pair3.public(), 30)],
+		balances: pairs,
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();

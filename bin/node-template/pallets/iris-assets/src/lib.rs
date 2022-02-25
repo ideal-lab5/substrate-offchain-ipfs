@@ -177,6 +177,8 @@ pub mod pallet {
         NoSuchAssetClass,
         /// the account does not have a sufficient balance
         InsufficientBalance,
+        /// the asset id is unknown or you do not have access to it
+        InvalidAssetId,
 	}
 
     #[pallet::hooks]
@@ -253,6 +255,37 @@ pub mod pallet {
             <AssetAccess<T>>::insert(beneficiary_accountid.clone(), asset_id.clone(), who.clone());
         
             Self::deposit_event(Event::AssetCreated(asset_id.clone()));
+            Ok(())
+        }
+
+        /// transfer an amount of owned assets to another address
+        /// 
+        /// * `target`: The target node to receive the assets
+        /// * `asset_id`: The asset id of the asset to be transferred
+        /// * `amount`: The amount of the asset to transfer
+        /// 
+        #[pallet::weight(100)]
+        pub fn transfer_asset(
+            origin: OriginFor<T>,
+            target: <T::Lookup as StaticLookup>::Source,
+            asset_id: T::AssetId,
+            #[pallet::compact] amount: T::Balance,
+        ) -> DispatchResult {
+            let current_owner = ensure_signed(origin)?;
+            
+            ensure!(
+                AssetAccess::<T>::contains_key(current_owner.clone(), asset_id.clone()),
+                Error::<T>::InvalidAssetId,        
+            );
+
+            let new_origin = system::RawOrigin::Signed(current_owner.clone()).into();
+            <pallet_assets::Pallet<T>>::transfer(
+                new_origin,
+                asset_id.clone(),
+                target.clone(),
+                amount.clone(),
+            )?;
+
             Ok(())
         }
         
