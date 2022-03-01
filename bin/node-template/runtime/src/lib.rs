@@ -204,6 +204,7 @@ impl frame_system::Config for Runtime {
 	type BlockLength = RuntimeBlockLength;
 	/// The identifier used to distinguish between accounts.
 	type AccountId = AccountId;
+	// type AccountId = From<[u8; 32]>;
 	/// The aggregated dispatch type that is available for extrinsics.
 	type Call = Call;
 	/// The lookup mechanism to get account ID from whatever is passed in dispatchers.
@@ -816,10 +817,14 @@ use pallet_contracts::chain_extension::{
     UncheckedFrom,
 };
 use sp_runtime::DispatchError;
+use frame_system::{
+	self as system,
+};
 
 pub struct IrisExtension;
 
 impl ChainExtension<Runtime> for IrisExtension {
+	
     fn call<E: Ext>(
         func_id: u32,
         env: Environment<E, InitState>,
@@ -831,10 +836,14 @@ impl ChainExtension<Runtime> for IrisExtension {
         match func_id {
             1 => {
                 let mut env = env.buf_in_buf_out();
-                let arg: [u8; 32] = env.read_as()?;
-                // call to transfer assets should go here
-                // crate::IrisAssets::trandsfer(&arg);
-                // let random_slice = random_seed.encode();
+                let caller_account: AccountId = env.read_as()?;
+				let target: AccountId = env.read_as()?;
+				let asset_id: u32 = env.read_as()?;
+				let amount: u64 = env.read_as()?;
+				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
+                crate::Iris::transfer_asset(
+					origin, sp_runtime::MultiAddress::Id(target), asset_id, amount,
+				)?;
                 trace!(
                     target: "runtime",
                     "[ChainExtension]|call|func_id:{:}",
@@ -849,7 +858,7 @@ impl ChainExtension<Runtime> for IrisExtension {
                 return Err(DispatchError::Other("Unimplemented func_id"))
             }
         }
-        Ok(RetVal::Converging(0))
+        Ok(RetVal::Converging(func_id))
     }
 
     fn enabled() -> bool {
