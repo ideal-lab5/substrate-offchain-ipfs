@@ -61,6 +61,7 @@ pub use sp_runtime::{Perbill, Permill};
 /// Import the template pallet.
 pub use pallet_iris_assets;
 pub use pallet_iris_session;
+pub use pallet_iris_ledger;
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -454,7 +455,13 @@ pub type SignedPayload = generic::SignedPayload<Call, SignedExtra>;
 impl pallet_iris_assets::Config for Runtime {
 	type Event = Event;
 	type Call = Call;
-	type Currency = Balances;
+	type IrisCurrency = Balances;
+}
+
+impl pallet_iris_ledger::Config for Runtime {
+	type Event = Event;
+	type Call = Call;
+	type IrisCurrency = Balances;
 }
 
 impl<LocalCall> frame_system::offchain::CreateSignedTransaction<LocalCall> for Runtime
@@ -526,6 +533,7 @@ construct_runtime!(
 		Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>},
 		Iris: pallet_iris_assets::{Pallet, Call, Storage, Event<T>},
 		IrisSession: pallet_iris_session::{Pallet, Call, Storage, Event<T>, Config<T>, ValidateUnsigned},
+		IrisLedger: pallet_iris_ledger::{Pallet, Call, Storage, Event<T>},
 		Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>},
 		Assets: pallet_assets::{Pallet, Storage, Event<T>},
 		ImOnline: pallet_im_online::{Pallet, Call, Storage, Event<T>, ValidateUnsigned, Config<T>},
@@ -802,7 +810,19 @@ impl_runtime_apis! {
 	}
 }
 
-// use codec::Encode;
+/**
+ * 
+ * CHAIN EXTENSION
+ * 
+ * Here we expose functionality that can be used by smart contracts to hook into the iris runtime
+ * 
+ * in general, this exposes iris functionality that doesn't rely on the underlying IPFS network
+ * 
+ * We expose functionality to:
+ * - transfer owned assets
+ * - mint assets from an owned asset class
+ * 
+ */
 use frame_support::log::{
     error,
     trace,
@@ -863,6 +883,25 @@ impl ChainExtension<Runtime> for IrisExtension {
                     "[ChainExtension]|call|func_id:{:}",
                     func_id
                 );
+			},
+			// lock currrency
+			3 => {
+				let mut env = env.buf_in_buf_out();
+				let (caller_account, amount, cid): (AccountId, u64, Vec<u8>) = env.read_as()?;
+				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
+
+				crate::Iris::lock_currency(
+					origin, amount, cid
+				)?;
+				trace!(
+                    target: "runtime",
+                    "[ChainExtension]|call|func_id:{:}",
+                    func_id
+                );
+			},
+			// unlock and transfer currency
+			4 => {
+
 			},
             _ => {
 				// env.write(&random_slice, false, None).map_err(|_| {
