@@ -95,7 +95,7 @@ pub mod pallet {
             T::Balance,
             T::AccountId>
         >,
-        ValueQuery
+        ValueQuery,
     >;
 
     /// A collection of asset ids
@@ -109,15 +109,23 @@ pub mod pallet {
         ValueQuery,
     >;
 
-    /// Store the map associating owned CID to a specific asset ID
-    ///
-    /// asset_admin_accountid -> CID -> asset id
+    // TODO: Combine the following maps into one using a custom struct
+    /// map asset id to admin account
     #[pallet::storage]
     #[pallet::getter(fn asset_class_ownership)]
-    pub(super) type AssetClassOwnership<T: Config> = StorageDoubleMap<
+    pub(super) type AssetClassOwnership<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
+        T::AssetId,
         T::AccountId,
+        ValueQuery,
+    >;
+
+    // map asset id to cid 
+    #[pallet::storage]
+    #[pallet::getter(fn metadata)]
+    pub(super) type Metadata<T: Config> = StorageMap<
+        _,
         Blake2_128Concat,
         T::AssetId,
         Vec<u8>,
@@ -246,7 +254,7 @@ pub mod pallet {
             #[pallet::compact] amount: T::Balance,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            ensure!(AssetClassOwnership::<T>::contains_key(who.clone(), asset_id.clone()), Error::<T>::NoSuchOwnedContent);
+            // ensure!(AssetClassOwnership::<T>::contains_key(asset_id.clone()), Error::<T>::NoSuchOwnedContent);
 
             let new_origin = system::RawOrigin::Signed(who.clone()).into();
             let beneficiary_accountid = T::Lookup::lookup(beneficiary.clone())?;
@@ -272,11 +280,6 @@ pub mod pallet {
             #[pallet::compact] amount: T::Balance,
         ) -> DispatchResult {
             let current_owner = ensure_signed(origin)?;
-            
-            ensure!(
-                AssetAccess::<T>::contains_key(current_owner.clone(), asset_id.clone()),
-                Error::<T>::InvalidAssetId,        
-            );
 
             let new_origin = system::RawOrigin::Signed(current_owner.clone()).into();
             <pallet_assets::Pallet<T>>::transfer(
@@ -285,6 +288,11 @@ pub mod pallet {
                 target.clone(),
                 amount.clone(),
             )?;
+            
+            let target_account = T::Lookup::lookup(target)?;
+            // get asset owner (could be different than origin)
+            let asset_id_owner = <AssetClassOwnership<T>>::get(asset_id.clone());
+            <AssetAccess<T>>::insert(target_account.clone(), asset_id.clone(), asset_id_owner.clone());
 
             Ok(())
         }
@@ -332,9 +340,15 @@ pub mod pallet {
 
             <pallet_assets::Pallet<T>>::create(new_origin, id.clone(), admin.clone(), balance)
                 .map_err(|_| Error::<T>::CantCreateAssetClass)?;
-            
+
+            <Metadata<T>>::insert(id.clone(), cid.clone());
+            // let new_new_origin = system::RawOrigin::Signed(who).into();
+            // <pallet_assets::Pallet<T>>::set_metadata(
+            //     new_new_origin, id.clone(), "cid".as_bytes().to_vec(), cid.clone(), 0,
+            // )?;
+
             let which_admin = T::Lookup::lookup(admin.clone())?;
-            <AssetClassOwnership<T>>::insert(which_admin, id.clone(), cid.clone());
+            <AssetClassOwnership<T>>::insert(id.clone(), which_admin);
             <AssetIds<T>>::mutate(|ids| ids.push(id.clone()));
             
             Self::deposit_event(Event::AssetClassCreated(id.clone()));
@@ -354,11 +368,14 @@ pub mod pallet {
             asset_id: T::AssetId,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            ensure!(<AssetClassOwnership<T>>::contains_key(asset_owner.clone(), asset_id.clone()), Error::<T>::NoSuchOwnedContent);
-            let cid = <AssetClassOwnership<T>>::get(
-                asset_owner.clone(), 
-                asset_id.clone(),
+            
+            let asset_id_owner = <AssetClassOwnership<T>>::get(asset_id.clone());
+            ensure!(
+                asset_id_owner == asset_owner.clone(),
+                Error::<T>::NoSuchOwnedContent
             );
+
+            let cid: Vec<u8> = <Metadata<T>>::get(asset_id.clone());
             <DataQueue<T>>::mutate(
                 |queue| queue.push(DataCommand::PinCID( 
                     who.clone(),
