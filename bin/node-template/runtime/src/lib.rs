@@ -837,17 +837,7 @@ impl ChainExtension<Runtime> for IrisExtension {
 			// transfer_asset
             1 => {
                 let mut env = env.buf_in_buf_out();
-
-                // let caller_account: AccountId = env.read_as()?;
-				// let target: AccountId = env.read_as()?;
-				// let asset_id: u32 = env.read_as()?;
-				// let amount: u64 = env.read_as()?;
-
 				let (caller_account, target, asset_id, amount): (AccountId, AccountId, u32, u64) = env.read_as()?;
-				// let target: AccountId = env.read_as()?;
-				// let asset_id: u32 = env.read_as()?;
-				// let amount: u64 = env.read_as()?;
-
 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
 
                 crate::Iris::transfer_asset(
@@ -862,12 +852,7 @@ impl ChainExtension<Runtime> for IrisExtension {
 			// mint assets
 			2 => {
 				let mut env = env.buf_in_buf_out();
-				
-				let caller_account: AccountId = env.read_as()?;
-				let beneficiary: AccountId = env.read_as()?;
-				let asset_id: u32 = env.read_as()?;
-				let amount: u64 = env.read_as()?;
-
+				let (caller_account, target, asset_id, amount): (AccountId, AccountId, u32, u64) = env.read_as()?;
 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
 
 				crate::Iris::mint(
