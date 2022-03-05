@@ -136,11 +136,9 @@ pub mod pallet {
         pub fn unlock_currency_and_transfer(
             origin: OriginFor<T>,
             target: T::AccountId,
-            cid: Vec<u8>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            // we assume locked amount equals amount in IrisLedger... for now
-            // let lock_id: LockIdentifier = cid;
+            // assume ammount in ledger matches locked amount for now......
             let amount = <IrisLedger<T>>::get(who.clone(), IRIS_LOCK_ID);
             T::IrisCurrency::remove_lock(IRIS_LOCK_ID, &who);
 

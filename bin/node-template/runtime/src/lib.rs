@@ -854,7 +854,7 @@ impl ChainExtension<Runtime> for IrisExtension {
             UncheckedFrom<<E::T as SysConfig>::Hash> + AsRef<[u8]>,
     {
         match func_id {
-			// transfer_asset
+			// IrisAssets::transfer_asset
             1 => {
                 let mut env = env.buf_in_buf_out();
 				let (caller_account, target, asset_id, amount): (AccountId, AccountId, u32, u64) = env.read_as()?;
@@ -869,7 +869,7 @@ impl ChainExtension<Runtime> for IrisExtension {
                     func_id
                 );
             },
-			// mint assets
+			// IrisAssets::mint
 			2 => {
 				let mut env = env.buf_in_buf_out();
 				let (caller_account, target, asset_id, amount): (AccountId, AccountId, u32, u64) = env.read_as()?;
@@ -884,14 +884,14 @@ impl ChainExtension<Runtime> for IrisExtension {
                     func_id
                 );
 			},
-			// lock currrency
+			// IrisLedger::lock_currrency
 			3 => {
 				let mut env = env.buf_in_buf_out();
 				let (caller_account, amount, cid): (AccountId, u64, Vec<u8>) = env.read_as()?;
 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
 
-				crate::Iris::lock_currency(
-					origin, amount, cid
+				crate::IrisLedger::lock_currency(
+					origin, amount, cid,
 				)?;
 				trace!(
                     target: "runtime",
@@ -899,9 +899,20 @@ impl ChainExtension<Runtime> for IrisExtension {
                     func_id
                 );
 			},
-			// unlock and transfer currency
+			// IrisLedger::unlock_currency_and_transfer
 			4 => {
+				let mut env = env.buf_in_buf_out();
+				let (caller_account, target): (AccountId, AccountId) = env.read_as()?;
+				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
 
+				crate::IrisLedger::unlock_currency_and_transfer(
+					origin, target,
+				)?;
+				trace!(
+                    target: "runtime",
+                    "[ChainExtension]|call|func_id:{:}",
+                    func_id
+                );
 			},
             _ => {
 				// env.write(&random_slice, false, None).map_err(|_| {
