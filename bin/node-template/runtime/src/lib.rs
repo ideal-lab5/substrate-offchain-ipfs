@@ -531,7 +531,7 @@ construct_runtime!(
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
 		TransactionPayment: pallet_transaction_payment::{Pallet, Storage},
 		Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>},
-		Iris: pallet_iris_assets::{Pallet, Call, Storage, Event<T>},
+		IrisAssets: pallet_iris_assets::{Pallet, Call, Storage, Event<T>},
 		IrisSession: pallet_iris_session::{Pallet, Call, Storage, Event<T>, Config<T>, ValidateUnsigned},
 		IrisLedger: pallet_iris_ledger::{Pallet, Call, Storage, Event<T>},
 		Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>},
@@ -860,7 +860,7 @@ impl ChainExtension<Runtime> for IrisExtension {
 				let (caller_account, target, asset_id, amount): (AccountId, AccountId, u32, u64) = env.read_as()?;
 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
 
-                crate::Iris::transfer_asset(
+                crate::IrisAssets::transfer_asset(
 					origin, sp_runtime::MultiAddress::Id(target), asset_id, amount,
 				)?;
                 trace!(
@@ -875,7 +875,7 @@ impl ChainExtension<Runtime> for IrisExtension {
 				let (caller_account, target, asset_id, amount): (AccountId, AccountId, u32, u64) = env.read_as()?;
 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
 
-				crate::Iris::mint(
+				crate::IrisAssets::mint(
 					origin, sp_runtime::MultiAddress::Id(beneficiary), asset_id, amount,
 				)?;
 				trace!(
