@@ -172,7 +172,7 @@ where
 		task_manager.spawn_handle(),
 		client.clone(),
 		network.clone(),
-		task_manager.ipfs_rt.clone(),
+		task_manager.ipfs_rt.as_ref().unwrap().clone(),
 	);
 
 	// Proposer object for block authorship.

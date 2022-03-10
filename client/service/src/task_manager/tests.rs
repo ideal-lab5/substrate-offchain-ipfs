@@ -84,7 +84,7 @@ async fn run_background_task_blocking(duration: Duration, _keep_alive: impl Any)
 	}
 }
 
-fn new_task_manager(tokio_handle: tokio::runtime::Handle, ipfs_rt: tokio::runtime::Runtime) -> TaskManager {
+fn new_task_manager(tokio_handle: tokio::runtime::Handle, ipfs_rt: Option<tokio::runtime::Runtime>) -> TaskManager {
 	TaskManager::new(tokio_handle, ipfs_rt, None).unwrap()
 }
 
@@ -95,7 +95,7 @@ fn ensure_tasks_are_awaited_on_shutdown() {
 
 	let ipfs_rt = tokio::runtime::Runtime::new().unwrap();
 
-	let task_manager = new_task_manager(handle, ipfs_rt);
+	let task_manager = new_task_manager(handle, Some(ipfs_rt));
 	let spawn_handle = task_manager.spawn_handle();
 	let drop_tester = DropTester::new();
 	spawn_handle.spawn("task1", run_background_task(drop_tester.new_ref()));
@@ -115,7 +115,7 @@ fn ensure_keep_alive_during_shutdown() {
 
 	let ipfs_rt = tokio::runtime::Runtime::new().unwrap();
 
-	let mut task_manager = new_task_manager(handle, ipfs_rt);
+	let mut task_manager = new_task_manager(handle, Some(ipfs_rt));
 	let spawn_handle = task_manager.spawn_handle();
 	let drop_tester = DropTester::new();
 	task_manager.keep_alive(drop_tester.new_ref());
@@ -134,7 +134,7 @@ fn ensure_blocking_futures_are_awaited_on_shutdown() {
 	let handle = runtime.handle().clone();
 	let ipfs_rt = tokio::runtime::Runtime::new().unwrap();
 
-	let task_manager = new_task_manager(handle, ipfs_rt);
+	let task_manager = new_task_manager(handle, Some(ipfs_rt));
 	let spawn_handle = task_manager.spawn_handle();
 	let drop_tester = DropTester::new();
 	spawn_handle.spawn(
@@ -159,7 +159,7 @@ fn ensure_no_task_can_be_spawn_after_terminate() {
 	let handle = runtime.handle().clone();
 	let ipfs_rt = tokio::runtime::Runtime::new().unwrap();
 
-	let mut task_manager = new_task_manager(handle, ipfs_rt);
+	let mut task_manager = new_task_manager(handle, Some(ipfs_rt));
 	let spawn_handle = task_manager.spawn_handle();
 	let drop_tester = DropTester::new();
 	spawn_handle.spawn("task1", run_background_task(drop_tester.new_ref()));
@@ -180,7 +180,7 @@ fn ensure_task_manager_future_ends_when_task_manager_terminated() {
 	let handle = runtime.handle().clone();
 	let ipfs_rt = tokio::runtime::Runtime::new().unwrap();
 
-	let mut task_manager = new_task_manager(handle, ipfs_rt);
+	let mut task_manager = new_task_manager(handle, Some(ipfs_rt));
 	let spawn_handle = task_manager.spawn_handle();
 	let drop_tester = DropTester::new();
 	spawn_handle.spawn("task1", run_background_task(drop_tester.new_ref()));
@@ -201,7 +201,7 @@ fn ensure_task_manager_future_ends_with_error_when_essential_task_fails() {
 	let handle = runtime.handle().clone();
 	let ipfs_rt = tokio::runtime::Runtime::new().unwrap();
 
-	let mut task_manager = new_task_manager(handle, ipfs_rt);
+	let mut task_manager = new_task_manager(handle, Some(ipfs_rt));
 	let spawn_handle = task_manager.spawn_handle();
 	let spawn_essential_handle = task_manager.spawn_essential_handle();
 	let drop_tester = DropTester::new();
@@ -226,10 +226,10 @@ fn ensure_children_tasks_ends_when_task_manager_terminated() {
 	let handle = runtime.handle().clone();
 	let ipfs_rt = tokio::runtime::Runtime::new().unwrap();
 
-	let mut task_manager = new_task_manager(handle.clone(), ipfs_rt.clone());
-	let child_1 = new_task_manager(handle.clone(), ipfs_rt.clone());
+	let mut task_manager = new_task_manager(handle.clone(), Some(ipfs_rt));
+	let child_1 = new_task_manager(handle.clone(), None);
 	let spawn_handle_child_1 = child_1.spawn_handle();
-	let child_2 = new_task_manager(handle.clone(), ipfs_rt.clone());
+	let child_2 = new_task_manager(handle.clone(), None);
 	let spawn_handle_child_2 = child_2.spawn_handle();
 	task_manager.add_child(child_1);
 	task_manager.add_child(child_2);
@@ -256,11 +256,11 @@ fn ensure_task_manager_future_ends_with_error_when_childs_essential_task_fails()
 
 	let ipfs_rt = tokio::runtime::Runtime::new().unwrap();
 
-	let mut task_manager = new_task_manager(handle.clone(), ipfs_rt.clone());
-	let child_1 = new_task_manager(handle.clone(), ipfs_rt.clone());
+	let mut task_manager = new_task_manager(handle.clone(), Some(ipfs_rt));
+	let child_1 = new_task_manager(handle.clone(), None);
 	let spawn_handle_child_1 = child_1.spawn_handle();
 	let spawn_essential_handle_child_1 = child_1.spawn_essential_handle();
-	let child_2 = new_task_manager(handle.clone(), ipfs_rt.clone());
+	let child_2 = new_task_manager(handle.clone(), None);
 	let spawn_handle_child_2 = child_2.spawn_handle();
 	task_manager.add_child(child_1);
 	task_manager.add_child(child_2);
@@ -290,10 +290,10 @@ fn ensure_task_manager_future_continues_when_childs_not_essential_task_fails() {
 
 	let ipfs_rt = tokio::runtime::Runtime::new().unwrap();
 
-	let mut task_manager = new_task_manager(handle.clone(), ipfs_rt.clone());
-	let child_1 = new_task_manager(handle.clone(), ipfs_rt.clone());
+	let mut task_manager = new_task_manager(handle.clone(), Some(ipfs_rt));
+	let child_1 = new_task_manager(handle.clone(), None);
 	let spawn_handle_child_1 = child_1.spawn_handle();
-	let child_2 = new_task_manager(handle.clone(), ipfs_rt.clone());
+	let child_2 = new_task_manager(handle.clone(), None);
 	let spawn_handle_child_2 = child_2.spawn_handle();
 	task_manager.add_child(child_1);
 	task_manager.add_child(child_2);

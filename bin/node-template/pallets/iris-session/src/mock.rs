@@ -16,15 +16,12 @@ use sp_runtime::{
 };
 use sp_core::{
 	crypto::key_types::DUMMY,
-	offchain::{testing, OffchainWorkerExt, TransactionPoolExt},
 	sr25519::Signature,
 	H256,
 	Pair,
 };
-use sp_keystore::{testing::KeyStore, KeystoreExt, SyncCryptoStore};
 
 use std::cell::RefCell;
-use std::sync::Arc;
 
 impl_opaque_keys! {
 	pub struct MockSessionKeys {
@@ -81,21 +78,13 @@ frame_support::construct_runtime!(
 	}
 );
 
-// pub static V0: (sp_core::sr25519::Public, UintAuthorityId) = (sp_core::sr25519::Pair::generate_with_phrase(Some("0")).0.public(), UintAuthorityId(0));
-// pub static V1: (sp_core::sr25519::Public, UintAuthorityId) = (sp_core::sr25519::Pair::generate_with_phrase(Some("1")).0.public(), UintAuthorityId(1));
-// pub static V2: (sp_core::sr25519::Public, UintAuthorityId) = (sp_core::sr25519::Pair::generate_with_phrase(Some("2")).0.public(), UintAuthorityId(2));
-
 thread_local! {
-	pub static VALIDATORS: RefCell<Vec<(sp_core::sr25519::Public, UintAuthorityId)>> = RefCell::new(
-		vec![(sp_core::sr25519::Pair::generate_with_phrase(Some("0")).0.public(), UintAuthorityId(0)),
-		(sp_core::sr25519::Pair::generate_with_phrase(Some("1")).0.public(), UintAuthorityId(1)),
-		(sp_core::sr25519::Pair::generate_with_phrase(Some("2")).0.public(), UintAuthorityId(2))]);
 	pub static NEXT_VALIDATORS: RefCell<Vec<(sp_core::sr25519::Public, UintAuthorityId)>> = RefCell::new(
 		vec![(sp_core::sr25519::Pair::generate_with_phrase(Some("0")).0.public(), UintAuthorityId(0)),
 		(sp_core::sr25519::Pair::generate_with_phrase(Some("1")).0.public(), UintAuthorityId(1)),
 		(sp_core::sr25519::Pair::generate_with_phrase(Some("2")).0.public(), UintAuthorityId(2))]);
 	pub static AUTHORITIES: RefCell<Vec<UintAuthorityId>> =
-		RefCell::new(vec![UintAuthorityId(1), UintAuthorityId(2), UintAuthorityId(3)]);
+		RefCell::new(vec![UintAuthorityId(0), UintAuthorityId(1), UintAuthorityId(2)]);
 	pub static FORCE_SESSION_END: RefCell<bool> = RefCell::new(false);
 	pub static SESSION_LENGTH: RefCell<u64> = RefCell::new(2);
 	pub static SESSION_CHANGED: RefCell<bool> = RefCell::new(false);
@@ -212,7 +201,6 @@ impl pallet_assets::Config for Test {
 	type AssetId = u32;
 	type Currency = Balances;
 	type ForceOrigin = frame_system::EnsureRoot<sp_core::sr25519::Public>;
-	// type ForceOrigin = EnsureRoot<u64>;
 	type AssetDeposit = AssetDeposit;
 	type MetadataDepositBase = MetadataDepositBase;
 	type MetadataDepositPerByte = MetadataDepositPerByte;
@@ -293,16 +281,14 @@ where
 	}
 }
 
-pub fn new_test_ext() -> sp_io::TestExternalities {
+pub fn new_test_ext(validators: Vec<(sp_core::sr25519::Public, UintAuthorityId)>) -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::default().build_storage::<Test>().unwrap();
-	let keys: Vec<_> = NEXT_VALIDATORS
-		.with(|l| l.borrow().iter().cloned().map(|i| (i.0, i.0, i.1.into())).collect());
+	let keys: Vec<_> = validators.clone().iter()
+		.map(|i| (i.0, i.0, i.1.clone().into())).collect();
 	BasicExternalities::execute_with_storage(&mut t, || {
 		for (ref k, ..) in &keys {
 			frame_system::Pallet::<Test>::inc_providers(k);
 		}
-		// frame_system::Pallet::<Test>::inc_providers(&4);
-		// frame_system::Pallet::<Test>::inc_providers(&69);
 	});
 
 	pallet_iris_session::GenesisConfig::<Test> {

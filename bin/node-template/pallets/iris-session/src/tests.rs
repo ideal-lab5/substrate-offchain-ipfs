@@ -14,7 +14,6 @@ use sp_keystore::{testing::KeyStore, KeystoreExt, SyncCryptoStore};
 use std::sync::Arc;
 
 // validator tests 
-
 #[test]
 fn iris_session_simple_setup_should_work() {
 	let v0: (sp_core::sr25519::Public, UintAuthorityId) = (
@@ -29,8 +28,10 @@ fn iris_session_simple_setup_should_work() {
 		sp_core::sr25519::Pair::generate_with_phrase(Some("2")).0.public(), 
 		UintAuthorityId(2)
 	);
-	new_test_ext().execute_with(|| {
-		assert_eq!(authorities(), vec![v0.1, v1.1, v2.1]);
+
+	new_test_ext(vec![v0.clone(), v1.clone(), v2.clone()]).execute_with(|| {
+		// assert_eq!(authorities(), vec![v0.1, v1.1, v2.1]);
+		assert_eq!(authorities(), vec![UintAuthorityId(0), UintAuthorityId(1), UintAuthorityId(2)]);
 		assert_eq!(crate::Validators::<Test>::get(), vec![v0.0, v1.0, v2.0]);
 		assert_eq!(Session::validators(), vec![v0.0, v1.0, v2.0]);
 	});
@@ -38,40 +39,85 @@ fn iris_session_simple_setup_should_work() {
 
 #[test]
 fn iris_session_add_validator_updates_validators_list() {
-	let v0 = sp_core::sr25519::Pair::generate_with_phrase(Some("0")).0.public();
-	let v1 = sp_core::sr25519::Pair::generate_with_phrase(Some("1")).0.public();
-	let v2 = sp_core::sr25519::Pair::generate_with_phrase(Some("2")).0.public();
-	let v3 = sp_core::sr25519::Pair::generate_with_phrase(Some("3")).0.public();
+	let v0: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("0")).0.public(), 
+		UintAuthorityId(0)
+	);
+	let v1: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("1")).0.public(), 
+		UintAuthorityId(1)
+	);
+	let v2: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("2")).0.public(), 
+		UintAuthorityId(2)
+	);
+	let v3: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("3")).0.public(), 
+		UintAuthorityId(3)
+	);
 	
-	new_test_ext().execute_with(|| {
-		assert_ok!(IrisSession::add_validator(Origin::root(), v3));
-		assert_eq!(crate::Validators::<Test>::get(), vec![v0, v1, v2, v3]);
+	new_test_ext(vec![v0.clone(), v1.clone(), v2.clone()]).execute_with(|| {
+		assert_ok!(IrisSession::add_validator(Origin::root(), v3.0));
+		assert_eq!(crate::Validators::<Test>::get(), vec![v0.0, v1.0, v2.0, v3.0]);
 	});
 }
 
 #[test]
 fn iris_session_remove_validator_updates_validators_list() {
-	let v0 = sp_core::sr25519::Pair::generate_with_phrase(Some("0")).0.public();
-	let v1 = sp_core::sr25519::Pair::generate_with_phrase(Some("1")).0.public();
-	let v2 = sp_core::sr25519::Pair::generate_with_phrase(Some("2")).0.public();
-	new_test_ext().execute_with(|| {
-		assert_ok!(IrisSession::remove_validator(Origin::root(), v1));
-		assert_eq!(IrisSession::validators(), vec![v0, v2]);
+	let v0: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("0")).0.public(), 
+		UintAuthorityId(0)
+	);
+	let v1: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("1")).0.public(), 
+		UintAuthorityId(1)
+	);
+	let v2: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("2")).0.public(), 
+		UintAuthorityId(2)
+	);
+	new_test_ext(vec![v0.clone(), v1.clone(), v2.clone()]).execute_with(|| {
+		assert_ok!(IrisSession::remove_validator(Origin::root(), v1.0));
+		assert_eq!(IrisSession::validators(), vec![v0.0, v2.0]);
 	});
 }
 
 #[test]
 fn iris_session_add_validator_fails_with_invalid_origin() {
+	let v0: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("0")).0.public(), 
+		UintAuthorityId(0)
+	);
+	let v1: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("1")).0.public(), 
+		UintAuthorityId(1)
+	);
+	let v2: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("2")).0.public(), 
+		UintAuthorityId(2)
+	);
 	let v3 = sp_core::sr25519::Pair::generate_with_phrase(Some("3")).0.public();
-	new_test_ext().execute_with(|| {
+	new_test_ext(vec![v0.clone(), v1.clone(), v2.clone()]).execute_with(|| {
 		assert_noop!(IrisSession::add_validator(Origin::signed(v3.clone()), v3), DispatchError::BadOrigin);
 	});
 }
 
 #[test]
 fn iris_session_remove_validator_fails_with_invalid_origin() {
+	let v0: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("0")).0.public(), 
+		UintAuthorityId(0)
+	);
+	let v1: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("1")).0.public(), 
+		UintAuthorityId(1)
+	);
+	let v2: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("2")).0.public(), 
+		UintAuthorityId(2)
+	);
 	let v3 = sp_core::sr25519::Pair::generate_with_phrase(Some("3")).0.public();
-	new_test_ext().execute_with(|| {
+	new_test_ext(vec![v0.clone(), v1.clone(), v2.clone()]).execute_with(|| {
 		assert_noop!(
 			IrisSession::remove_validator(Origin::signed(v3.clone()), v3),
 			DispatchError::BadOrigin
@@ -81,14 +127,26 @@ fn iris_session_remove_validator_fails_with_invalid_origin() {
 
 #[test]
 fn iris_session_duplicate_check() {
-	let v0 = sp_core::sr25519::Pair::generate_with_phrase(Some("0")).0.public();
-	let v1 = sp_core::sr25519::Pair::generate_with_phrase(Some("1")).0.public();
-	let v2 = sp_core::sr25519::Pair::generate_with_phrase(Some("2")).0.public();
-	let v3 = sp_core::sr25519::Pair::generate_with_phrase(Some("3")).0.public();
-	new_test_ext().execute_with(|| {
-		assert_ok!(IrisSession::add_validator(Origin::root(), v3));
-		assert_eq!(IrisSession::validators(), vec![v0, v1, v2, v3]);
-		assert_noop!(IrisSession::add_validator(Origin::root(), v3), Error::<Test>::Duplicate);
+	let v0: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("0")).0.public(), 
+		UintAuthorityId(0)
+	);
+	let v1: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("1")).0.public(), 
+		UintAuthorityId(1)
+	);
+	let v2: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("2")).0.public(), 
+		UintAuthorityId(2)
+	);
+	let v3: (sp_core::sr25519::Public, UintAuthorityId) = (
+		sp_core::sr25519::Pair::generate_with_phrase(Some("3")).0.public(), 
+		UintAuthorityId(3)
+	);
+	new_test_ext(vec![v0.clone(), v1.clone(), v2.clone()]).execute_with(|| {
+		assert_ok!(IrisSession::add_validator(Origin::root(), v3.0));
+		assert_eq!(IrisSession::validators(), vec![v0.0, v1.0, v2.0, v3.0]);
+		assert_noop!(IrisSession::add_validator(Origin::root(), v3.0), Error::<Test>::Duplicate);
 	});
 }
 
@@ -144,9 +202,21 @@ fn iris_session_join_storage_pool() {
 			response: Some(IpfsResponse::AddBytes(cid_vec.clone())),
 			..Default::default()
 		});
+		// get ipfs id
+		state.expect_ipfs_request(testing::IpfsPendingRequest {
+			// id: sp_core::offchain::IpfsRequestId(5),
+			response: Some(IpfsResponse::Identity(Vec::new(), Vec::new())),
+			..Default::default()
+		});
+		// insert pin
+		state.expect_ipfs_request(testing::IpfsPendingRequest {
+			response: Some(IpfsResponse::Success),
+			..Default::default()
+		});
 	}
 
 	t.execute_with(|| {
+		assert_ok!(IrisSession::add_validator(Origin::root(), p.clone().public()));
 		// WHEN: I invoke the create_storage_assets extrinsic
 		assert_ok!(IrisAssets::create(
 			Origin::signed(p.clone().public()),
@@ -159,6 +229,18 @@ fn iris_session_join_storage_pool() {
 		));
 		// THEN: the offchain worker adds data to IPFS
 		assert_ok!(IrisSession::handle_data_requests());
+		assert_ok!(IrisSession::submit_ipfs_add_results(
+			Origin::signed(p.clone().public()),
+			p.clone().public(),
+			cid_vec.clone(),
+			id.clone(),
+			balance.clone(),
+		));
+		// AND: the data queue is cleared after the command is processed
+		// let data_queue = IrisAssets::data_queue();
+		// let len = data_queue.len();
+		// assert_eq!(len, 0);
+		// AND: the request is removed from the data queue
 		assert_ok!(IrisSession::join_storage_pool(
 			Origin::signed(p.clone().public()),
 			p.clone().public(),
@@ -166,7 +248,7 @@ fn iris_session_join_storage_pool() {
 		));
 		// AND: I receive a reward point
 		let mut era_reward_points = crate::ErasRewardPoints::<Test>::get(0, id.clone());
-		assert_eq!(1, era_reward_points.total);
+		assert_eq!(4, era_reward_points.total);
 		assert_eq!(1u32, *era_reward_points.individual.entry(p.clone().public()).or_default());
 	});
 }
@@ -240,6 +322,7 @@ fn iris_session_validators_receive_reward_when_add_bytes_to_ipfs() {
 	}
 
 	t.execute_with(|| {
+		assert_ok!(IrisSession::add_validator(Origin::root(), p.clone().public()));
 		// WHEN: I invoke the create_storage_assets extrinsic
 		assert_ok!(IrisAssets::create(
 			Origin::signed(p.clone().public()),
@@ -252,9 +335,16 @@ fn iris_session_validators_receive_reward_when_add_bytes_to_ipfs() {
 		));
 		// THEN: the offchain worker adds data to IPFS
 		assert_ok!(IrisSession::handle_data_requests());
+		assert_ok!(IrisSession::submit_ipfs_add_results(
+			Origin::signed(p.clone().public()),
+			p.clone().public(),
+			cid_vec.clone(),
+			id.clone(),
+			balance.clone(),
+		));
 		// AND: each validator is given a reward point
 		let mut eras_reward_points = crate::ErasRewardPoints::<Test>::get(0, id.clone());
-		assert_eq!(3, eras_reward_points.total);
+		assert_eq!(4, eras_reward_points.total);
 		for validator in crate::Validators::<Test>::get() {
 			assert_eq!(1u32, *eras_reward_points.individual.entry(validator).or_default());
 		}
@@ -263,7 +353,7 @@ fn iris_session_validators_receive_reward_when_add_bytes_to_ipfs() {
 
 // can fetch bytes and add to offchain storage
 #[test]
-fn iris_can_fetch_bytes_and_add_to_offchain_storage() {
+fn iris_session_can_fetch_bytes_and_add_to_offchain_storage() {
 	let (p, _) = sp_core::sr25519::Pair::generate();
 	let (offchain, state) = testing::TestOffchainExt::new();
 	let (pool, _) = testing::TestTransactionPoolExt::new();
@@ -292,37 +382,65 @@ fn iris_can_fetch_bytes_and_add_to_offchain_storage() {
 	// mock IPFS calls
 	{	
 		let mut state = state.write();
+
 		// connect to external node
 		state.expect_ipfs_request(testing::IpfsPendingRequest {
+			id: sp_core::offchain::IpfsRequestId(0),
 			response: Some(IpfsResponse::Success),
 			..Default::default()
 		});
 		// fetch data
 		state.expect_ipfs_request(testing::IpfsPendingRequest {
-			id: sp_core::offchain::IpfsRequestId(0),
+			id: sp_core::offchain::IpfsRequestId(1),
 			response: Some(IpfsResponse::CatBytes(bytes.clone())),
 			..Default::default()
 		});
 		// disconnect from the external node
 		state.expect_ipfs_request(testing::IpfsPendingRequest {
+			id: sp_core::offchain::IpfsRequestId(2),
 			response: Some(IpfsResponse::Success),
 			..Default::default()
 		});
 		// add bytes to your local node 
 		state.expect_ipfs_request(testing::IpfsPendingRequest {
+			id: sp_core::offchain::IpfsRequestId(3),
 			response: Some(IpfsResponse::AddBytes(cid_vec.clone())),
+			..Default::default()
+		});
+		// // fetch data
+		// state.expect_ipfs_request(testing::IpfsPendingRequest {
+		// 	id: sp_core::offchain::IpfsRequestId(4),
+		// 	response: Some(IpfsResponse::CatBytes(bytes.clone())),
+		// 	..Default::default()
+		// });
+		// get ipfs id
+		state.expect_ipfs_request(testing::IpfsPendingRequest {
+			id: sp_core::offchain::IpfsRequestId(5),
+			response: Some(IpfsResponse::Identity(Vec::new(), Vec::new())),
+			..Default::default()
+		});
+		// insert pin
+		state.expect_ipfs_request(testing::IpfsPendingRequest {
+			response: Some(IpfsResponse::Success),
+			..Default::default()
+		});
+		state.expect_ipfs_request(testing::IpfsPendingRequest {
+			id: sp_core::offchain::IpfsRequestId(5),
+			response: Some(IpfsResponse::Identity(Vec::new(), Vec::new())),
 			..Default::default()
 		});
 		// fetch data
 		state.expect_ipfs_request(testing::IpfsPendingRequest {
-			id: sp_core::offchain::IpfsRequestId(0),
+			id: sp_core::offchain::IpfsRequestId(6),
 			response: Some(IpfsResponse::CatBytes(bytes.clone())),
 			..Default::default()
 		});
 	}
 
 	t.execute_with(|| {
+		assert_ok!(IrisSession::add_validator(Origin::root(), p.clone().public()));
 		// WHEN: I invoke the create extrinsic
+		// each validator awarded 1 point
 		assert_ok!(IrisAssets::create(
 			Origin::signed(p.clone().public()),
 			p.clone().public(),
@@ -348,12 +466,14 @@ fn iris_can_fetch_bytes_and_add_to_offchain_storage() {
 			balance.clone(),
 		));
 		// AND: A validator stores the data
+		// p is awarded 1 point
 		assert_ok!(IrisSession::join_storage_pool(
 			Origin::signed(p.clone().public()),
 			p.clone().public(),
 			id.clone(),
 		));
 		// AND: I request the owned content from iris
+		// p is rewarded 1 point
 		assert_ok!(IrisAssets::request_bytes(
 			Origin::signed(p.clone().public()),
 			p.clone().public(),
@@ -363,7 +483,7 @@ fn iris_can_fetch_bytes_and_add_to_offchain_storage() {
 		assert_ok!(IrisSession::handle_data_requests());
 		// AND: Each storage provider receives a reward point
 		let mut eras_reward_points = crate::ErasRewardPoints::<Test>::get(0, id.clone());
-		assert_eq!(3, eras_reward_points.total);
+		assert_eq!(4, eras_reward_points.total);
 		for validator in crate::Validators::<Test>::get() {
 			assert_eq!(1u32, *eras_reward_points.individual.entry(validator).or_default()	);
 		}

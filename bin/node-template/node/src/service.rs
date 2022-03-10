@@ -198,7 +198,7 @@ pub fn new_full(mut config: Configuration) -> Result<TaskManager, ServiceError> 
 			task_manager.spawn_handle(),
 			client.clone(),
 			network.clone(),
-			task_manager.ipfs_rt.clone(),
+			task_manager.ipfs_rt.as_ref().unwrap().clone(),
 		);
 	}
 
@@ -429,7 +429,7 @@ pub fn new_light(mut config: Configuration) -> Result<TaskManager, ServiceError>
 			task_manager.spawn_handle(),
 			client.clone(),
 			network.clone(),
-			task_manager.ipfs_rt.clone(),
+			task_manager.ipfs_rt.as_ref().unwrap().clone(),
 		);
 	}
 
