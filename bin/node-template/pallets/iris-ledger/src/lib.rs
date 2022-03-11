@@ -1,26 +1,24 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-//! # Iris Storage Pallet
-//!
+//! # Iris Ledger Pallet
 //!
 //! ## Overview
-//!
-//! ### Goals
-//! The Iris module provides functionality for creation and management of storage assets and access management
+//! This pallet provides functionality for nodes to lock funds, unlock funds, and transfer them to other nodes. 
+//! In essence, it enables nodes to promise funds to other nodes from within the context of a smart contract (via a chain extension) 
+//! or by calling the exgtrinsics directly.
 //! 
 //! ### Dispatchable Functions 
+//! 
+//! * lock_currency
+//! 
+//! * unlock_currency_and_transfer
 //!
-//! #### Permissionless functions
-//! * create_storage_asset
-//!
-//! #### Permissioned Functions
-//! * mint_tickets
 //!
 
 use scale_info::TypeInfo;
 use codec::{Encode, Decode};
 use frame_support::{
-    ensure,
+    dispatch::DispatchResult,
     traits::{Currency, LockIdentifier, LockableCurrency, WithdrawReasons},
 };
 use frame_system::{
@@ -31,17 +29,14 @@ use sp_core::offchain::OpaqueMultiaddr;
 
 use sp_runtime::{
     RuntimeDebug,
-    traits::StaticLookup,
+    traits::{
+		AtLeast32BitUnsigned, Bounded, CheckedAdd, CheckedSub, Saturating, StaticLookup, Zero,
+	},
 };
 use sp_std::{
-    vec::Vec,
     prelude::*,
 };
-
-type IRIS_LOCK_ID: LockIdentifier: *b"irislock";
-
-type BalanceOf<T> =
-        <<T as Config>::IrisCurrency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+use codec::HasCompact;
 
 pub use pallet::*;
 
@@ -68,11 +63,17 @@ pub mod pallet {
 	use sp_core::offchain::OpaqueMultiaddr;
 	use sp_std::{str, vec::Vec};
 
+    const IRIS_LOCK_ID: LockIdentifier = *b"irislock";
+
+    type BalanceOf<T> =
+        <<T as Config>::IrisCurrency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+
+
 	#[pallet::config]
     /// the module configuration trait
 	pub trait Config: frame_system::Config {
         /// The overarching event type
-		type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
+        type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         /// the overarching call type
 	    type Call: From<Call<Self>>;
         /// the currency used
@@ -92,7 +93,7 @@ pub mod pallet {
         T::AccountId,
         Blake2_128Concat,
         LockIdentifier,
-        T::Balance,
+        BalanceOf<T>,
         ValueQuery,
     >;
 
@@ -113,11 +114,14 @@ pub mod pallet {
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 
+        /// lock some amount of currency
+        /// 
+        /// * amount: the amount of currency to lock
+        /// 
         #[pallet::weight(100)]
         pub fn lock_currency(
             origin: OriginFor<T>,
-            amount: T::IrisCurrency,
-            cid : Vec<u8>,
+            #[pallet::compact] amount: BalanceOf<T>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             // let lock_id: LockIdentifier = cid;
@@ -132,6 +136,10 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Unlock currency and transfer it to a target node
+        /// 
+        /// * target: the node to which currency will be transferred 
+        /// 
         #[pallet::weight(100)]
         pub fn unlock_currency_and_transfer(
             origin: OriginFor<T>,
@@ -142,13 +150,15 @@ pub mod pallet {
             let amount = <IrisLedger<T>>::get(who.clone(), IRIS_LOCK_ID);
             T::IrisCurrency::remove_lock(IRIS_LOCK_ID, &who);
 
-            let new_origin = system::RawOrigin::Signed(who).into();
-            T::IrisCurrency::transfer(
-                new_origin,
-                target,
-                amount,
-                KeepAlive,
-            )?;
+            // let new_origin = system::RawOrigin::Signed(who.clone()).into();
+            // T::IrisCurrency::transfer(
+            //     new_origin,
+            //     &target,
+            //     amount,
+            //     KeepAlive,
+            // )?;
+
+            <IrisLedger<T>>::remove(who.clone(), IRIS_LOCK_ID);
             Self::deposit_event(Event::Unlocked(who));
             Ok(())
         }

@@ -27,6 +27,7 @@ pallet-assets = { version = "4.0.0-dev", default-features = false, path = "../..
 pallet-session = { version = "4.0.0-dev", default-features = false, features = ["historical"], path = "../../../frame/session" }
 pallet-iris-assets = { version = "1.0.0", default-features = false, path = "../pallets/iris-assets" }
 pallet-iris-session = { version = "1.0.0", default-features = false, path = "../pallets/iris-session" }
+pallet-iris-ledger = { version = "1.0.0", default-features = false, path = "../pallets/iris-ledger" }
 pallet-timestamp = { version = "4.0.0-dev", default-features = false, path = "../../../frame/timestamp" }
 pallet-transaction-payment = { version = "4.0.0-dev", default-features = false, path = "../../../frame/transaction-payment" }
 pallet-contracts = { version = "4.0.0-dev", default-features = false, path = "../../../frame/contracts" }
@@ -80,6 +81,7 @@ std = [
 	"pallet-sudo/std",
 	"pallet-im-online/std",
 	"pallet-iris-assets/std",
+	"pallet-iris-ledger/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-iris-rpc-runtime-api/std",

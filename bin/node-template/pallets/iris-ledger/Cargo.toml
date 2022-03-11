@@ -1,7 +1,7 @@
 [package]
 authors = ['Substrate DevHub <https://github.com/substrate-developer-hub>']
 edition = '2018'
-name = 'pallet-iris-assets'
+name = 'pallet-iris-ledger'
 version = "1.0.0"
 license = "Unlicense"
 homepage = "https://substrate.dev"
@@ -31,7 +31,6 @@ frame-benchmarking = { default-features = false, version = "4.0.0-dev", path = "
 log = { version = "0.4.14", default-features = false }
 
 pallet-balances = { version = "4.0.0-dev", default-features = false, path = "../../../../frame/balances" }
-pallet-assets = { version = "4.0.0-dev", default-features = false, path = "../../../../frame/assets" }
 
 [features]
 default = ['std']
@@ -46,7 +45,6 @@ std = [
 	'sp-keystore/std',
 	'sp-runtime/std',
 	'log/std',
-	'pallet-assets/std',
 	'pallet-balances/std',
 ]
 

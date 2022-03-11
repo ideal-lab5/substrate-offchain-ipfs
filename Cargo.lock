@@ -4979,6 +4979,7 @@ dependencies = [
  "pallet-grandpa",
  "pallet-im-online",
  "pallet-iris-assets",
+ "pallet-iris-ledger",
  "pallet-iris-rpc-runtime-api",
  "pallet-iris-session",
  "pallet-randomness-collective-flip",
@@ -5797,6 +5798,24 @@ dependencies = [
  "frame-system",
  "log 0.4.14",
  "pallet-assets",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-keystore",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
+name = "pallet-iris-ledger"
+version = "1.0.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log 0.4.14",
  "pallet-balances",
  "parity-scale-codec",
  "scale-info",

@@ -455,12 +455,13 @@ pub type SignedPayload = generic::SignedPayload<Call, SignedExtra>;
 impl pallet_iris_assets::Config for Runtime {
 	type Event = Event;
 	type Call = Call;
-	type IrisCurrency = Balances;
+	type Currency = Balances;
 }
 
 impl pallet_iris_ledger::Config for Runtime {
 	type Event = Event;
 	type Call = Call;
+	// type Balance = u64;
 	type IrisCurrency = Balances;
 }
 
@@ -876,7 +877,7 @@ impl ChainExtension<Runtime> for IrisExtension {
 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
 
 				crate::IrisAssets::mint(
-					origin, sp_runtime::MultiAddress::Id(beneficiary), asset_id, amount,
+					origin, sp_runtime::MultiAddress::Id(target), asset_id, amount,
 				)?;
 				trace!(
                     target: "runtime",
@@ -887,11 +888,11 @@ impl ChainExtension<Runtime> for IrisExtension {
 			// IrisLedger::lock_currrency
 			3 => {
 				let mut env = env.buf_in_buf_out();
-				let (caller_account, amount, cid): (AccountId, u64, Vec<u8>) = env.read_as()?;
+				let (caller_account, amount): (AccountId, u64) = env.read_as()?;
 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
 
 				crate::IrisLedger::lock_currency(
-					origin, amount, cid,
+					origin, amount.into(),
 				)?;
 				trace!(
                     target: "runtime",
