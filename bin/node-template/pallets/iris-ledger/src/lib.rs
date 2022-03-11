@@ -124,7 +124,6 @@ pub mod pallet {
             #[pallet::compact] amount: BalanceOf<T>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            // let lock_id: LockIdentifier = cid;
             T::IrisCurrency::set_lock(
                 IRIS_LOCK_ID,
                 &who,
@@ -146,17 +145,17 @@ pub mod pallet {
             target: T::AccountId,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
+            // let new_origin: OriginFor<T> = system::RawOrigin::Signed(who.clone()).into();
             // assume ammount in ledger matches locked amount for now......
             let amount = <IrisLedger<T>>::get(who.clone(), IRIS_LOCK_ID);
+            
             T::IrisCurrency::remove_lock(IRIS_LOCK_ID, &who);
-
-            // let new_origin = system::RawOrigin::Signed(who.clone()).into();
-            // T::IrisCurrency::transfer(
-            //     new_origin,
-            //     &target,
-            //     amount,
-            //     KeepAlive,
-            // )?;
+            T::IrisCurrency::transfer(
+                &who,
+                &target,
+                amount,
+                KeepAlive,
+            )?;
 
             <IrisLedger<T>>::remove(who.clone(), IRIS_LOCK_ID);
             Self::deposit_event(Event::Unlocked(who));

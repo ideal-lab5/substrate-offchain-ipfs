@@ -254,7 +254,6 @@ pub mod pallet {
             #[pallet::compact] amount: T::Balance,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            // ensure!(AssetClassOwnership::<T>::contains_key(asset_id.clone()), Error::<T>::NoSuchOwnedContent);
 
             let new_origin = system::RawOrigin::Signed(who.clone()).into();
             let beneficiary_accountid = T::Lookup::lookup(beneficiary.clone())?;
