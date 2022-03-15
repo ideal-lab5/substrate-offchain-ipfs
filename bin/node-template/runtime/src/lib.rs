@@ -855,6 +855,11 @@ impl ChainExtension<Runtime> for IrisExtension {
             UncheckedFrom<<E::T as SysConfig>::Hash> + AsRef<[u8]>,
     {
         match func_id {
+			trace!(
+				target: "runtime",
+				"[ChainExtension]|call|func_id:{:}",
+				func_id
+			);
 			// IrisAssets::transfer_asset
             1 => {
                 let mut env = env.buf_in_buf_out();
@@ -864,27 +869,22 @@ impl ChainExtension<Runtime> for IrisExtension {
                 crate::IrisAssets::transfer_asset(
 					origin, sp_runtime::MultiAddress::Id(target), asset_id, amount,
 				)?;
-                trace!(
-                    target: "runtime",
-                    "[ChainExtension]|call|func_id:{:}",
-                    func_id
-                );
-            },
+            }
 			// IrisAssets::mint
 			2 => {
 				let mut env = env.buf_in_buf_out();
 				let (caller_account, target, asset_id, amount): (AccountId, AccountId, u32, u64) = env.read_as()?;
 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
 
-				crate::IrisAssets::mint(
+                crate::IrisAssets::mint(
 					origin, sp_runtime::MultiAddress::Id(target), asset_id, amount,
 				)?;
-				trace!(
+                trace!(
                     target: "runtime",
                     "[ChainExtension]|call|func_id:{:}",
                     func_id
                 );
-			},
+			}
 			// IrisLedger::lock_currrency
 			3 => {
 				let mut env = env.buf_in_buf_out();
@@ -894,11 +894,6 @@ impl ChainExtension<Runtime> for IrisExtension {
 				crate::IrisLedger::lock_currency(
 					origin, amount.into(),
 				)?;
-				trace!(
-                    target: "runtime",
-                    "[ChainExtension]|call|func_id:{:}",
-                    func_id
-                );
 			},
 			// IrisLedger::unlock_currency_and_transfer
 			4 => {
@@ -909,12 +904,7 @@ impl ChainExtension<Runtime> for IrisExtension {
 				crate::IrisLedger::unlock_currency_and_transfer(
 					origin, target,
 				)?;
-				trace!(
-                    target: "runtime",
-                    "[ChainExtension]|call|func_id:{:}",
-                    func_id
-                );
-			},
+			}
             _ => {
 				// env.write(&random_slice, false, None).map_err(|_| {
                 //     DispatchError::Other("ChainExtension failed to call transfer_assets")
