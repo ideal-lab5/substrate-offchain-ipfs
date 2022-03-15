@@ -257,8 +257,13 @@ pub mod pallet {
 
             let new_origin = system::RawOrigin::Signed(who.clone()).into();
             let beneficiary_accountid = T::Lookup::lookup(beneficiary.clone())?;
-            <pallet_assets::Pallet<T>>::mint(new_origin, asset_id.clone(), beneficiary.clone(), amount)
-                .map_err(|_| Error::<T>::CantMintAssets)?;
+            <pallet_assets::Pallet<T>>::mint(
+                new_origin, 
+                asset_id.clone(), 
+                beneficiary.clone(), 
+                amount
+            )?;
+            
             <AssetAccess<T>>::insert(beneficiary_accountid.clone(), asset_id.clone(), who.clone());
         
             Self::deposit_event(Event::AssetCreated(asset_id.clone()));

@@ -87,12 +87,10 @@ pub mod pallet {
     // TODO: Move this to it's own pallet?
     #[pallet::storage]
     #[pallet::getter(fn iris_ledger)]
-    pub(super) type IrisLedger<T: Config> = StorageDoubleMap<
+    pub(super) type Ledger<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
         T::AccountId,
-        Blake2_128Concat,
-        LockIdentifier,
         BalanceOf<T>,
         ValueQuery,
     >;
@@ -130,7 +128,7 @@ pub mod pallet {
                 amount.clone(),
                 WithdrawReasons::all(),
             );
-            <IrisLedger<T>>::insert(who.clone(), IRIS_LOCK_ID, amount.clone());
+            <Ledger<T>>::insert(who.clone(), amount.clone());
             Self::deposit_event(Event::Locked(who, amount));
             Ok(())
         }
@@ -145,9 +143,8 @@ pub mod pallet {
             target: T::AccountId,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            // let new_origin: OriginFor<T> = system::RawOrigin::Signed(who.clone()).into();
-            // assume ammount in ledger matches locked amount for now......
-            let amount = <IrisLedger<T>>::get(who.clone(), IRIS_LOCK_ID);
+            // assume ammount in ledger matches locked amount for now
+            let amount = <Ledger<T>>::get(who.clone());
             
             T::IrisCurrency::remove_lock(IRIS_LOCK_ID, &who);
             T::IrisCurrency::transfer(
@@ -155,9 +152,9 @@ pub mod pallet {
                 &target,
                 amount,
                 KeepAlive,
-            )?;
+            );
 
-            <IrisLedger<T>>::remove(who.clone(), IRIS_LOCK_ID);
+            <Ledger<T>>::remove(who.clone());
             Self::deposit_event(Event::Unlocked(who));
             Ok(())
         }
