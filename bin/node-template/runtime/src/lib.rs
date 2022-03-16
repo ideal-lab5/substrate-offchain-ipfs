@@ -854,14 +854,14 @@ impl ChainExtension<Runtime> for IrisExtension {
         <E::T as SysConfig>::AccountId:
             UncheckedFrom<<E::T as SysConfig>::Hash> + AsRef<[u8]>,
     {
-        match func_id {
-			trace!(
-				target: "runtime",
-				"[ChainExtension]|call|func_id:{:}",
-				func_id
-			);
+		trace!(
+			target: "runtime",
+			"[ChainExtension]|call|func_id:{:}",
+			func_id
+		);
+        match func_id {	
 			// IrisAssets::transfer_asset
-            1 => {
+            0 => {
                 let mut env = env.buf_in_buf_out();
 				let (caller_account, target, asset_id, amount): (AccountId, AccountId, u32, u64) = env.read_as()?;
 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
@@ -869,9 +869,10 @@ impl ChainExtension<Runtime> for IrisExtension {
                 crate::IrisAssets::transfer_asset(
 					origin, sp_runtime::MultiAddress::Id(target), asset_id, amount,
 				)?;
-            }
+				Ok(RetVal::Converging(func_id))
+            },
 			// IrisAssets::mint
-			2 => {
+			1 => {
 				let mut env = env.buf_in_buf_out();
 				let (caller_account, target, asset_id, amount): (AccountId, AccountId, u32, u64) = env.read_as()?;
 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
@@ -879,14 +880,10 @@ impl ChainExtension<Runtime> for IrisExtension {
                 crate::IrisAssets::mint(
 					origin, sp_runtime::MultiAddress::Id(target), asset_id, amount,
 				)?;
-                trace!(
-                    target: "runtime",
-                    "[ChainExtension]|call|func_id:{:}",
-                    func_id
-                );
-			}
+				Ok(RetVal::Converging(func_id))
+			},
 			// IrisLedger::lock_currrency
-			3 => {
+			2 => {
 				let mut env = env.buf_in_buf_out();
 				let (caller_account, amount): (AccountId, u64) = env.read_as()?;
 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
@@ -894,9 +891,10 @@ impl ChainExtension<Runtime> for IrisExtension {
 				crate::IrisLedger::lock_currency(
 					origin, amount.into(),
 				)?;
+				Ok(RetVal::Converging(func_id))
 			},
 			// IrisLedger::unlock_currency_and_transfer
-			4 => {
+			3 => {
 				let mut env = env.buf_in_buf_out();
 				let (caller_account, target): (AccountId, AccountId) = env.read_as()?;
 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
@@ -904,7 +902,8 @@ impl ChainExtension<Runtime> for IrisExtension {
 				crate::IrisLedger::unlock_currency_and_transfer(
 					origin, target,
 				)?;
-			}
+				Ok(RetVal::Converging(func_id))
+			},
             _ => {
 				// env.write(&random_slice, false, None).map_err(|_| {
                 //     DispatchError::Other("ChainExtension failed to call transfer_assets")
@@ -913,7 +912,6 @@ impl ChainExtension<Runtime> for IrisExtension {
                 return Err(DispatchError::Other("Unimplemented func_id"))
             }
         }
-        Ok(RetVal::Converging(func_id))
     }
 
     fn enabled() -> bool {
