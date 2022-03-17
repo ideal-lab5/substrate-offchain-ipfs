@@ -2,11 +2,11 @@ use super::*;
 use frame_support::{assert_ok};
 use mock::*;
 use sp_core::Pair;
-use sp_core::{
-	offchain::{testing, OffchainWorkerExt, TransactionPoolExt, OffchainDbExt}
-};
-use sp_keystore::{testing::KeyStore, KeystoreExt, SyncCryptoStore};
-use std::sync::Arc;
+// use sp_core::{
+// 	offchain::{testing, OffchainWorkerExt, TransactionPoolExt, OffchainDbExt}
+// };
+// use sp_keystore::{testing::KeyStore, KeystoreExt, SyncCryptoStore};
+// use std::sync::Arc;
 
 #[test]
 fn iris_assets_initial_state() {
@@ -28,7 +28,6 @@ fn iris_assets_ipfs_add_bytes_works_for_valid_value() {
 	let multiaddr_vec = "/ip4/127.0.0.1/tcp/4001/p2p/12D3KooWMvyvKxYcy9mjbFbXcogFSCvENzQ62ogRxHKZaksFCkAp".as_bytes().to_vec();
 	let cid_vec = "QmPZv7P8nQUSh2CpqTvUeYemFyjvMjgWEs8H1Tm8b3zAm9".as_bytes().to_vec();
 	let name: Vec<u8> = "test.txt".as_bytes().to_vec();
-	let cost = 1;
 	let id = 1;
 	let balance = 1;
 
@@ -113,8 +112,8 @@ fn iris_assets_submit_ipfs_add_results_works_for_valid_values() {
 
 		// THEN: a new asset class is created
 		// AND: A new entry is added to the AssetClassOwnership StorageDoubleMap
-		let admin_asset_class_cid = crate::AssetClassOwnership::<Test>::get(p.clone().public(), id.clone());
-		assert_eq!(admin_asset_class_cid, cid_vec.clone());
+		let asset_class_owner = crate::AssetClassOwnership::<Test>::get(id.clone());
+		assert_eq!(asset_class_owner, p.clone().public());
 	});
 }
 
@@ -195,22 +194,9 @@ fn iris_assets_can_burn_asset() {
 	// Given: I am a valid node with a positive balance
 	let (p, _) = sp_core::sr25519::Pair::generate();
 	let pairs = vec![(p.clone().public(), 10)];
-	let multiaddr_vec = "/ip4/127.0.0.1/tcp/4001/p2p/12D3KooWMvyvKxYcy9mjbFbXcogFSCvENzQ62ogRxHKZaksFCkAp".as_bytes().to_vec();
 	let cid_vec = "QmPZv7P8nQUSh2CpqTvUeYemFyjvMjgWEs8H1Tm8b3zAm9".as_bytes().to_vec();
-	let name: Vec<u8> = "test.txt".as_bytes().to_vec();
-	let cost = 1;
 	let id = 1;
 	let balance = 2;
-
-	// 
-	let expected_data_command = crate::DataCommand::AddBytes(
-		OpaqueMultiaddr(multiaddr_vec.clone()),
-		cid_vec.clone(),
-		p.clone().public(),
-		name.clone(),
-		id.clone(),
-		balance.clone(),
-	);
 
 	new_test_ext_funded(pairs).execute_with(|| {
 		// GIVEN: I create an asset class
@@ -229,10 +215,10 @@ fn iris_assets_can_burn_asset() {
 			balance.clone(),
 		));
 		// WHEN: I burn 1 asset
-		asset_ok!(Iris::burn(
+		assert_ok!(Iris::burn(
 			Origin::signed(p.clone().public()),
-			id.clone(),
 			p.clone().public(),
+			id.clone(),
 			1,
 		));
 	});	

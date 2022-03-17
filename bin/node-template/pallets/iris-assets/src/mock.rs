@@ -4,13 +4,10 @@ use frame_support::{construct_runtime, parameter_types};
 use sp_core::{
 	Pair,
 	H256,
-	sr25519::{
-		Signature,
-	},
 };
 use sp_runtime::{
-	testing::{Header, TestXt},
-	traits::{BlakeTwo256, Extrinsic as ExtrinsicT, IdentityLookup, IdentifyAccount, Verify},
+	testing::Header,
+	traits::{BlakeTwo256, Extrinsic as ExtrinsicT, IdentityLookup},
 };
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;

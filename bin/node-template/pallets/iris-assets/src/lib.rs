@@ -1,7 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-//! # Iris Storage Pallet
-//!
+//! # Iris Assets Pallet
 //!
 //! ## Overview
 //!
@@ -317,7 +316,7 @@ pub mod pallet {
             #[pallet::compact] amount: T::Balance,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            let new_origin = system::RawOrigin::Signed(current_owner.clone()).into();
+            let new_origin = system::RawOrigin::Signed(who.clone()).into();
             <pallet_assets::Pallet<T>>::burn(
                 new_origin,
                 asset_id.clone(),
