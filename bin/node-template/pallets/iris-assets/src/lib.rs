@@ -158,6 +158,8 @@ pub mod pallet {
         AssetClassCreated(T::AssetId),
         /// A new asset was created (tickets minted)
         AssetCreated(T::AssetId),
+        /// An asset was burned succesfully
+        AssetBurned(T::AssetId),
         /// A node has published ipfs identity results on chain
         PublishedIdentity(T::AccountId),
         QueuedDataToPin,
@@ -220,8 +222,8 @@ pub mod pallet {
             addr: Vec<u8>,
             cid: Vec<u8>,
             name: Vec<u8>,
-            id: T::AssetId,
-            balance: T::Balance,
+            #[pallet::compact] id: T::AssetId,
+            #[pallet::compact] balance: T::Balance,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             let multiaddr = OpaqueMultiaddr(addr);
@@ -250,7 +252,7 @@ pub mod pallet {
         pub fn mint(
             origin: OriginFor<T>,
             beneficiary: <T::Lookup as StaticLookup>::Source,
-            asset_id: T::AssetId,
+            #[pallet::compact] asset_id: T::AssetId,
             #[pallet::compact] amount: T::Balance,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
@@ -280,7 +282,7 @@ pub mod pallet {
         pub fn transfer_asset(
             origin: OriginFor<T>,
             target: <T::Lookup as StaticLookup>::Source,
-            asset_id: T::AssetId,
+            #[pallet::compact] asset_id: T::AssetId,
             #[pallet::compact] amount: T::Balance,
         ) -> DispatchResult {
             let current_owner = ensure_signed(origin)?;
@@ -300,6 +302,33 @@ pub mod pallet {
 
             Ok(())
         }
+
+        /// Burns the amount of assets
+        /// 
+        /// * `target`: the target account to burn assets from
+        /// * `asset_id`: The asset id to burn
+        /// * `amount`: The amount of assets to burn
+        /// 
+        #[pallet::weight(100)]
+        pub fn burn(
+            origin: OriginFor<T>,
+            target: <T::Lookup as StaticLookup>::Source,
+            #[pallet::compact] asset_id: T::AssetId,
+            #[pallet::compact] amount: T::Balance,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            let new_origin = system::RawOrigin::Signed(current_owner.clone()).into();
+            <pallet_assets::Pallet<T>>::burn(
+                new_origin,
+                asset_id.clone(),
+                target,
+                amount.clone(),
+            )?;
+
+            Self::deposit_event(Event::AssetBurned(asset_id.clone()));
+
+            Ok(())
+        }
         
         /// request to fetch bytes from ipfs and add to offchain storage
         /// 
@@ -310,7 +339,7 @@ pub mod pallet {
 		pub fn request_bytes(
 			origin: OriginFor<T>,
 			owner: <T::Lookup as StaticLookup>::Source,
-			asset_id: T::AssetId,
+			#[pallet::compact] asset_id: T::AssetId,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
             let owner_account = T::Lookup::lookup(owner)?;
@@ -336,8 +365,8 @@ pub mod pallet {
             origin: OriginFor<T>,
             admin: <T::Lookup as StaticLookup>::Source,
             cid: Vec<u8>,
-            id: T::AssetId,
-            balance: T::Balance,
+            #[pallet::compact] id: T::AssetId,
+            #[pallet::compact] balance: T::Balance,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             let new_origin = system::RawOrigin::Signed(who).into();
@@ -346,10 +375,6 @@ pub mod pallet {
                 .map_err(|_| Error::<T>::CantCreateAssetClass)?;
 
             <Metadata<T>>::insert(id.clone(), cid.clone());
-            // let new_new_origin = system::RawOrigin::Signed(who).into();
-            // <pallet_assets::Pallet<T>>::set_metadata(
-            //     new_new_origin, id.clone(), "cid".as_bytes().to_vec(), cid.clone(), 0,
-            // )?;
 
             let which_admin = T::Lookup::lookup(admin.clone())?;
             <AssetClassOwnership<T>>::insert(id.clone(), which_admin);
@@ -369,7 +394,7 @@ pub mod pallet {
         pub fn insert_pin_request(
             origin: OriginFor<T>,
             asset_owner: T::AccountId,
-            asset_id: T::AssetId,
+            #[pallet::compact] asset_id: T::AssetId,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             

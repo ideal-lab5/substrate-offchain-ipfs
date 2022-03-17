@@ -189,3 +189,51 @@ fn iris_assets_can_transer_assets() {
 		));
 	});
 }
+
+#[test]
+fn iris_assets_can_burn_asset() {
+	// Given: I am a valid node with a positive balance
+	let (p, _) = sp_core::sr25519::Pair::generate();
+	let pairs = vec![(p.clone().public(), 10)];
+	let multiaddr_vec = "/ip4/127.0.0.1/tcp/4001/p2p/12D3KooWMvyvKxYcy9mjbFbXcogFSCvENzQ62ogRxHKZaksFCkAp".as_bytes().to_vec();
+	let cid_vec = "QmPZv7P8nQUSh2CpqTvUeYemFyjvMjgWEs8H1Tm8b3zAm9".as_bytes().to_vec();
+	let name: Vec<u8> = "test.txt".as_bytes().to_vec();
+	let cost = 1;
+	let id = 1;
+	let balance = 2;
+
+	// 
+	let expected_data_command = crate::DataCommand::AddBytes(
+		OpaqueMultiaddr(multiaddr_vec.clone()),
+		cid_vec.clone(),
+		p.clone().public(),
+		name.clone(),
+		id.clone(),
+		balance.clone(),
+	);
+
+	new_test_ext_funded(pairs).execute_with(|| {
+		// GIVEN: I create an asset class
+		assert_ok!(Iris::submit_ipfs_add_results(
+			Origin::signed(p.clone().public()),
+			p.clone().public(),
+			cid_vec.clone(),
+			id.clone(),
+			balance.clone(),
+		));
+		// AND: I mint some assets
+		assert_ok!(Iris::mint(
+			Origin::signed(p.clone().public()),
+			p.clone().public(),
+			id.clone(),
+			balance.clone(),
+		));
+		// WHEN: I burn 1 asset
+		asset_ok!(Iris::burn(
+			Origin::signed(p.clone().public()),
+			id.clone(),
+			p.clone().public(),
+			1,
+		));
+	});	
+}
