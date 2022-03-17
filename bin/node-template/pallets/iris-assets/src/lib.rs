@@ -47,6 +47,12 @@ pub enum DataCommand<LookupSource, AssetId, Balance, AccountId> {
     PinCID(AccountId, AssetId, Vec<u8>),
 }
 
+#[derive(Encode, Decode, RuntimeDebug, PartialEq, TypeInfo, Default)]
+pub struct Metadata<AccountId> {
+    pub cid: Vec<u8>,
+    addresses: Vec<AccountId>,
+}
+
 pub use pallet::*;
 
 #[cfg(test)]
@@ -122,12 +128,13 @@ pub mod pallet {
 
     // map asset id to cid 
     #[pallet::storage]
-    #[pallet::getter(fn metadata)]
-    pub(super) type Metadata<T: Config> = StorageMap<
+    #[pallet::getter(fn metadata_map)]
+    pub(super) type MetadataMap<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
         T::AssetId,
-        Vec<u8>,
+        Metadata<T::AccountId>,
+        // Vec<u8>,
         ValueQuery,
     >;
 
@@ -373,7 +380,11 @@ pub mod pallet {
             <pallet_assets::Pallet<T>>::create(new_origin, id.clone(), admin.clone(), balance)
                 .map_err(|_| Error::<T>::CantCreateAssetClass)?;
 
-            <Metadata<T>>::insert(id.clone(), cid.clone());
+            let metadata: Metadata<T::AccountId> = Metadata {
+                cid: cid.clone(),
+                addresses: Vec::new(),
+            };
+            <MetadataMap<T>>::insert(id.clone(), metadata);
 
             let which_admin = T::Lookup::lookup(admin.clone())?;
             <AssetClassOwnership<T>>::insert(id.clone(), which_admin);
@@ -403,7 +414,7 @@ pub mod pallet {
                 Error::<T>::NoSuchOwnedContent
             );
 
-            let cid: Vec<u8> = <Metadata<T>>::get(asset_id.clone());
+            let cid: Vec<u8> = <MetadataMap<T>>::get(asset_id.clone()).cid;
             <DataQueue<T>>::mutate(
                 |queue| queue.push(DataCommand::PinCID( 
                     who.clone(),

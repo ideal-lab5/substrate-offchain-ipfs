@@ -161,7 +161,3 @@ pub mod pallet {
 
 	}
 }
-
-impl<T: Config> Pallet<T> {
-
-}
