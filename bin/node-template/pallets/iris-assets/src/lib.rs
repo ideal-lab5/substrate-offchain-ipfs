@@ -377,9 +377,7 @@ pub mod pallet {
 
             let which_admin = T::Lookup::lookup(admin.clone())?;
             let mut asset_ids = <AssetClassOwnership<T>>::get(which_admin);
-            asset_ids.mutate(|ids| {
-                ids.push(, id.clone()));
-            });
+            asset_ids.push(id.clone());
             <AssetIds<T>>::mutate(|ids| ids.push(id.clone()));
             
             Self::deposit_event(Event::AssetClassCreated(id.clone()));

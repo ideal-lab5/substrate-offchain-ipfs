@@ -152,7 +152,7 @@ pub mod pallet {
                 &target,
                 amount,
                 KeepAlive,
-            );
+            )?;
 
             <Ledger<T>>::remove(who.clone());
             Self::deposit_event(Event::Unlocked(who));
