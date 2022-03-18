@@ -1005,6 +1005,7 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
 
 	fn end_session(end_index: u32) {
 		log::info!("Ending session with index: {:?}", end_index);
+		// TODO: calculate which validators should fetch which data? not ideal really.. idk
 		Self::mark_dead_validators(end_index);
 	}
 

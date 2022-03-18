@@ -225,6 +225,7 @@ pub mod pallet {
 	}
 
 	#[pallet::storage]
+	#[pallet::getter(fn asset)]
 	/// Details of an asset.
 	pub(super) type Asset<T: Config<I>, I: 'static = ()> = StorageMap<
 		_,

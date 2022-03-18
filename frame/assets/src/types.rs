@@ -30,7 +30,7 @@ pub(super) type DepositBalanceOf<T, I = ()> =
 #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
 pub struct AssetDetails<Balance, AccountId, DepositBalance> {
 	/// Can change `owner`, `issuer`, `freezer` and `admin` accounts.
-	pub(super) owner: AccountId,
+	pub owner: AccountId,
 	/// Can mint tokens.
 	pub(super) issuer: AccountId,
 	/// Can thaw tokens, force transfers and burn tokens from any account.

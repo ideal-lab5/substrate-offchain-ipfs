@@ -115,8 +115,8 @@ pub mod pallet {
     pub(super) type AssetClassOwnership<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
-        T::AssetId,
         T::AccountId,
+        Vec<T::AssetId>,
         ValueQuery,
     >;
 
@@ -295,8 +295,8 @@ pub mod pallet {
             )?;
             
             let target_account = T::Lookup::lookup(target)?;
-            // get asset owner (could be different than origin)
-            let asset_id_owner = <AssetClassOwnership<T>>::get(asset_id.clone());
+
+            let asset_id_owner = <pallet_assets::Pallet<T>>::asset(asset_id.clone()).unwrap().owner;
             <AssetAccess<T>>::insert(target_account.clone(), asset_id.clone(), asset_id_owner.clone());
 
             Ok(())
@@ -376,7 +376,10 @@ pub mod pallet {
             <Metadata<T>>::insert(id.clone(), cid.clone());
 
             let which_admin = T::Lookup::lookup(admin.clone())?;
-            <AssetClassOwnership<T>>::insert(id.clone(), which_admin);
+            let mut asset_ids = <AssetClassOwnership<T>>::get(which_admin);
+            asset_ids.mutate(|ids| {
+                ids.push(, id.clone()));
+            });
             <AssetIds<T>>::mutate(|ids| ids.push(id.clone()));
             
             Self::deposit_event(Event::AssetClassCreated(id.clone()));
@@ -386,8 +389,8 @@ pub mod pallet {
 
         /// Add a request to pin a cid to the DataQueue for your embedded IPFS node
         /// 
-        /// * asset_owner: The owner of the asset class
-        /// * asset_id: The asset id of some asset class
+        /// * `asset_owner`: The owner of the asset class
+        /// * `asset_id`: The asset id of some asset class
         ///
         #[pallet::weight(100)]
         pub fn insert_pin_request(
@@ -396,8 +399,8 @@ pub mod pallet {
             #[pallet::compact] asset_id: T::AssetId,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            
-            let asset_id_owner = <AssetClassOwnership<T>>::get(asset_id.clone());
+
+            let asset_id_owner = <pallet_assets::Pallet<T>>::asset(asset_id.clone()).unwrap().owner;
             ensure!(
                 asset_id_owner == asset_owner.clone(),
                 Error::<T>::NoSuchOwnedContent
