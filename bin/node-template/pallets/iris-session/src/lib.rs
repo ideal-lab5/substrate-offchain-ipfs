@@ -898,7 +898,9 @@ impl<T: Config> Pallet<T> {
 					let expected_pub_key = <SubstrateIpfsBridge::<T>>::get(requestor.clone());
 					ensure!(public_key == expected_pub_key, Error::<T>::BadOrigin);
 
-					let cid = <pallet_iris_assets::Pallet<T>>::metadata_map(asset_id.clone()).cid;	
+					let cid = <pallet_iris_assets::Pallet<T>>::metadata(
+						asset_id.clone()
+					);	
 					ensure!(
 						owner.clone() == <pallet_iris_assets::Pallet<T>>::asset_access(requestor.clone(), asset_id.clone()),
 						Error::<T>::InsufficientBalance
