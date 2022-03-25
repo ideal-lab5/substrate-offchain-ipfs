@@ -134,6 +134,8 @@ pub mod pallet {
     /// Store the map associating a node with the assets to which they have access
     ///
     /// asset_owner_accountid -> CID -> asset_class_owner_accountid
+    /// TODO: Make this a regular StorageMap, T::AccountId -> Vec<T::AssetId>
+    /// 
     #[pallet::storage]
     #[pallet::getter(fn asset_access)]
     pub(super) type AssetAccess<T: Config> = StorageDoubleMap<
@@ -376,8 +378,10 @@ pub mod pallet {
             <Metadata<T>>::insert(id.clone(), cid.clone());
 
             let which_admin = T::Lookup::lookup(admin.clone())?;
-            let mut asset_ids = <AssetClassOwnership<T>>::get(which_admin);
-            asset_ids.push(id.clone());
+            
+            // let mut asset_ids = <AssetClassOwnership<T>>::get(which_admin);
+            // asset_ids.push(id.clone());
+            <AssetClassOwnership<T>>::mutate(which_admin, |ids| { ids.push(id) });
             <AssetIds<T>>::mutate(|ids| ids.push(id.clone()));
             
             Self::deposit_event(Event::AssetClassCreated(id.clone()));
