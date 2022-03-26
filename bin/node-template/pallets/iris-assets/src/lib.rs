@@ -295,8 +295,6 @@ pub mod pallet {
             )?;
             
             let target_account = T::Lookup::lookup(target)?;
-
-            // let asset_id_owner = <pallet_assets::Pallet<T>>::asset(asset_id.clone()).unwrap().owner;
             <AssetAccess<T>>::mutate(target_account.clone(), |ids| { ids.push(asset_id.clone()) });
 
             Ok(())
@@ -368,17 +366,11 @@ pub mod pallet {
             #[pallet::compact] balance: T::Balance,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            let new_origin = system::RawOrigin::Signed(who).into();
-
+            let which_admin = T::Lookup::lookup(admin.clone())?;
+            let new_origin = system::RawOrigin::Signed(which_admin.clone()).into();
             <pallet_assets::Pallet<T>>::create(new_origin, id.clone(), admin.clone(), balance)
                 .map_err(|_| Error::<T>::CantCreateAssetClass)?;
-
             <Metadata<T>>::insert(id.clone(), cid.clone());
-
-            let which_admin = T::Lookup::lookup(admin.clone())?;
-            
-            // let mut asset_ids = <AssetClassOwnership<T>>::get(which_admin);
-            // asset_ids.push(id.clone());
             <AssetClassOwnership<T>>::mutate(which_admin, |ids| { ids.push(id) });
             <AssetIds<T>>::mutate(|ids| ids.push(id.clone()));
             
