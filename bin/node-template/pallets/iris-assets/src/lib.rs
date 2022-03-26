@@ -138,13 +138,11 @@ pub mod pallet {
     /// 
     #[pallet::storage]
     #[pallet::getter(fn asset_access)]
-    pub(super) type AssetAccess<T: Config> = StorageDoubleMap<
+    pub(super) type AssetAccess<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
         T::AccountId,
-        Blake2_128Concat,
-        T::AssetId,
-        T::AccountId,
+        Vec<T::AssetId>,
         ValueQuery,
     >;
 
@@ -267,7 +265,7 @@ pub mod pallet {
                 amount
             )?;
             
-            <AssetAccess<T>>::insert(beneficiary_accountid.clone(), asset_id.clone(), who.clone());
+            <AssetAccess<T>>::mutate(beneficiary_accountid.clone(), |ids| { ids.push(asset_id.clone()) });
         
             Self::deposit_event(Event::AssetCreated(asset_id.clone()));
             Ok(())
@@ -298,8 +296,8 @@ pub mod pallet {
             
             let target_account = T::Lookup::lookup(target)?;
 
-            let asset_id_owner = <pallet_assets::Pallet<T>>::asset(asset_id.clone()).unwrap().owner;
-            <AssetAccess<T>>::insert(target_account.clone(), asset_id.clone(), asset_id_owner.clone());
+            // let asset_id_owner = <pallet_assets::Pallet<T>>::asset(asset_id.clone()).unwrap().owner;
+            <AssetAccess<T>>::mutate(target_account.clone(), |ids| { ids.push(asset_id.clone()) });
 
             Ok(())
         }
