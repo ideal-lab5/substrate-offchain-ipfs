@@ -335,15 +335,14 @@ pub mod pallet {
 		#[pallet::weight(100)]
 		pub fn request_bytes(
 			origin: OriginFor<T>,
-			owner: <T::Lookup as StaticLookup>::Source,
 			#[pallet::compact] asset_id: T::AssetId,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-            let owner_account = T::Lookup::lookup(owner)?;
+            let owner = <pallet_assets::Pallet<T>>::asset(asset_id.clone()).unwrap().owner;
             <DataQueue<T>>::mutate(
                 |queue| queue.push(DataCommand::CatBytes(
                     who.clone(),
-                    owner_account.clone(),
+                    owner.clone(),
                     asset_id.clone(),
                 )));
 			Ok(())

@@ -78,7 +78,6 @@ fn iris_assets_request_data_works_for_valid_values() {
 		// WHEN: I invoke the request_data extrinsic
 		assert_ok!(Iris::request_bytes(
 			Origin::signed(p.clone().public()),
-			p.clone().public(),
 			asset_id.clone(),
 		));
 
