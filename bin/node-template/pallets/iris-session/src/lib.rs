@@ -28,6 +28,8 @@
 mod mock;
 mod tests;
 
+use std::convert::TryInto;
+
 use frame_support::{
 	ensure,
 	pallet_prelude::*,
@@ -145,6 +147,7 @@ pub mod pallet {
 	pub trait Config: CreateSignedTransaction<Call<Self>> + 
 					  frame_system::Config +
 					  pallet_session::Config +
+					  pallet_assets::Config + 
 					  pallet_iris_assets::Config 
 	{
 		/// The Event type.
@@ -722,7 +725,6 @@ impl<T: Config> Pallet<T> {
 			.propagate(true)
 			.build()
 	}
-
 	/// implementation for RPC runtime API to retrieve bytes from the node's local storage
     /// 
     /// * public_key: The account's public key as bytes
@@ -730,10 +732,14 @@ impl<T: Config> Pallet<T> {
     /// * message: The signed message as bytes
     ///
     pub fn retrieve_bytes(
-		message: Bytes,
-    ) -> Bytes {
-        let message_vec: Vec<u8> = message.to_vec();
-		if let Some(data) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &message_vec) {
+		asset_id: Bytes,
+    ) -> Bytes
+		where <T as pallet_assets::pallet::Config>::AssetId: From<u32> {
+		let asset_id_u32: u32 = String::from_utf8(asset_id.to_vec()).unwrap().parse().unwrap();
+		let asset_id_type: T::AssetId = asset_id_u32.try_into().unwrap();
+		let cid = <pallet_iris_assets::Pallet<T>>::metadata(asset_id_type).to_vec();
+        // // let message_vec: Vec<u8> = message.to_vec();
+		if let Some(data) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &cid) {
 			Bytes(data.clone())
 		} else {
 			Bytes(Vec::new())

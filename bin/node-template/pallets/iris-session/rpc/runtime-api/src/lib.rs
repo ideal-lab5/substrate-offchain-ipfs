@@ -10,7 +10,7 @@ sp_api::decl_runtime_apis! {
 	pub trait IrisApi
 	{
 		fn retrieve_bytes(
-			message: Bytes,
+			asset_id: Bytes,
 		) -> Bytes;
 	}
 }

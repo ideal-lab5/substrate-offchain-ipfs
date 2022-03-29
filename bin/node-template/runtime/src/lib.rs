@@ -744,9 +744,9 @@ impl_runtime_apis! {
 	*/
 	impl pallet_iris_rpc_runtime_api::IrisApi<Block> for Runtime {
 		fn retrieve_bytes(
-			message: Bytes
+			asset_id: Bytes
 		) -> Bytes {
-			IrisSession::retrieve_bytes(message)
+			IrisSession::retrieve_bytes(asset_id)
 		}
 	}
 
