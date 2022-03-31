@@ -28,8 +28,6 @@
 mod mock;
 mod tests;
 
-use std::convert::TryInto;
-
 use frame_support::{
 	ensure,
 	pallet_prelude::*,
@@ -44,14 +42,15 @@ pub use pallet::*;
 use sp_runtime::traits::{Convert, Zero};
 use sp_staking::offence::{Offence, OffenceError, ReportOffence};
 use sp_std::{
-	collections::{ btree_set::BTreeSet, btree_map::BTreeMap },
+	collections::{btree_set::BTreeSet, btree_map::BTreeMap},
 	str,
 	vec::Vec,
 	prelude::*
 };
 use sp_core::{
     offchain::{
-        Duration, IpfsRequest, IpfsResponse, OpaqueMultiaddr, Timestamp, StorageKind,
+        Duration, IpfsRequest, IpfsResponse, 
+		OpaqueMultiaddr, Timestamp, StorageKind,
     },
 	crypto::KeyTypeId,
     Bytes,
@@ -725,27 +724,7 @@ impl<T: Config> Pallet<T> {
 			.propagate(true)
 			.build()
 	}
-	/// implementation for RPC runtime API to retrieve bytes from the node's local storage
-    /// 
-    /// * public_key: The account's public key as bytes
-    /// * signature: The signer's signature as bytes
-    /// * message: The signed message as bytes
-    ///
-    pub fn retrieve_bytes(
-		asset_id: Bytes,
-    ) -> Bytes
-		where <T as pallet_assets::pallet::Config>::AssetId: From<u32> {
-		let asset_id_u32: u32 = String::from_utf8(asset_id.to_vec()).unwrap().parse().unwrap();
-		let asset_id_type: T::AssetId = asset_id_u32.try_into().unwrap();
-		let cid = <pallet_iris_assets::Pallet<T>>::metadata(asset_id_type).to_vec();
-        // // let message_vec: Vec<u8> = message.to_vec();
-		if let Some(data) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &cid) {
-			Bytes(data.clone())
-		} else {
-			Bytes(Vec::new())
-		}
-    }
-	
+
 	 /// send a request to the local IPFS node; can only be called be an off-chain worker
 	 fn ipfs_request(
         req: IpfsRequest,

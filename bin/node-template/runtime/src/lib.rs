@@ -51,7 +51,6 @@ pub use frame_support::{
 pub use pallet_balances::Call as BalancesCall;
 pub use pallet_timestamp::Call as TimestampCall;
 pub use pallet_assets::Call as AssetsCall;
-// pub use pallet_iris_asset::Call as IrisAssetsCall;
 use pallet_transaction_payment::CurrencyAdapter;
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
@@ -744,9 +743,12 @@ impl_runtime_apis! {
 	*/
 	impl pallet_iris_rpc_runtime_api::IrisApi<Block> for Runtime {
 		fn retrieve_bytes(
-			asset_id: Bytes
+			signature: Bytes,
+			message: Bytes,
+			signer: Bytes,
+			asset_id: Bytes,
 		) -> Bytes {
-			IrisSession::retrieve_bytes(asset_id)
+			IrisAssets::retrieve_bytes(signature, message, signer, asset_id)
 		}
 	}
 

@@ -26,16 +26,23 @@ use frame_system::{
     self as system, ensure_signed,
 };
 
-use sp_core::offchain::OpaqueMultiaddr;
+use sp_core::{
+    offchain::{OpaqueMultiaddr, StorageKind},
+    Bytes,
+};
 
 use sp_runtime::{
     RuntimeDebug,
-    traits::StaticLookup,
+    traits::{StaticLookup, Verify, IdentifyAccount},
 };
 use sp_std::{
     vec::Vec,
     prelude::*,
 };
+use scale_info::prelude::string::String;
+
+use core::convert::TryInto;
+use sp_core::sr25519;
 
 #[derive(Encode, Decode, RuntimeDebug, PartialEq, TypeInfo)]
 pub enum DataCommand<LookupSource, AssetId, Balance, AccountId> {
@@ -338,6 +345,10 @@ pub mod pallet {
 			#[pallet::compact] asset_id: T::AssetId,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
+            // verify asset access -> should check assets pallet
+            // ensure!(<AssetAccess::<T>>::get(who.clone()).contains(asset_id),
+            //         Error::<T>::InvalidAssetId);
+            // submit command to dataqueue
             let owner = <pallet_assets::Pallet<T>>::asset(asset_id.clone()).unwrap().owner;
             <DataQueue<T>>::mutate(
                 |queue| queue.push(DataCommand::CatBytes(
@@ -414,5 +425,64 @@ pub mod pallet {
 }
 
 impl<T: Config> Pallet<T> {
+/// implementation for RPC runtime API to retrieve bytes from the node's local storage
+    /// 
+    /// * `signature`: The signer's signature as bytes
+    /// * `message`: The signed message as bytes
+	/// * `signer`: The public key of the message signer as bytes
+	/// * `asset_id`: The asset id associated with some data
+    ///
+	/// Note: If in the future you want to make sig/key types dynamic, add to trait def:
+	/// 
+	///```
+	/// pub trait Config: frame_system::Config {
+	///     ...
+	///    type Signature: Verify<Signer = Self::PublicKey> + Encode + Decode + Member;
+    ///    type PublicKey: IdentifyAccount<AccountId = Self::PublicKey> + Encode + Decode + Member;
+	///    ...
+	/// }
+	/// ```
+	/// 
+	/// And in your runtime:
+	/// ```
+	/// my_pallet::Config for runtime {
+	///     ...
+	///     type Signature = <your sig type>
+	///     type PublicKey = <your pub key type>
+	///     ....
+	/// }
+	/// ```
+	/// 
+    pub fn retrieve_bytes(
+		signature: Bytes,
+		message: Bytes,
+		signer: Bytes,
+		asset_id: Bytes,
+    ) -> Bytes
+		where <T as pallet_assets::pallet::Config>::AssetId: From<u32> {
+		// convert Bytes type to types needed for verification
+        let sig: sp_core::sr25519::Signature = sr25519::Signature::from_slice(signature.to_vec().as_ref());
+		let msg: Vec<u8> = message.to_vec();
+		let account_bytes: [u8; 32] = signer.to_vec().try_into().unwrap();
+		let public_key = sr25519::Public::from_raw(account_bytes);
 
+        // signature verification
+		if sig.verify(msg.as_slice(), &public_key) {
+            // parse asset id
+			let asset_id_u32: u32 = String::from_utf8(asset_id.to_vec()).unwrap().parse().unwrap();
+			let asset_id_type: T::AssetId = asset_id_u32.try_into().unwrap();
+            // verify asset access
+            // if !<AssetAccess::<T>>::get(public_key).contains(asset_id_type) {
+            //     return Bytes(Vec::new());
+            // }
+            // get CID and fetch from offchain storage
+			let cid = <Metadata::<T>>::get(asset_id_type).to_vec();
+			if let Some(data) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &cid) {
+				return Bytes(data.clone());
+			} else {
+				return Bytes(Vec::new());
+			}
+		}
+		Bytes(Vec::new())
+    }
 }

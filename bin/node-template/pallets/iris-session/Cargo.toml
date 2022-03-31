@@ -38,7 +38,6 @@ pallet-assets = { version = "4.0.0-dev", default-features = false, path = "../..
 
 [dev-dependencies]
 pallet-balances = { version = "4.0.0-dev", default-features = false, path = "../../../../frame/balances" }
-# pallet-assets = { version = "4.0.0-dev", default-features = false, path = "../../../../frame/assets" }
 
 [features]
 default = ['std']
@@ -52,7 +51,6 @@ std = [
 	'sp-std/std',
 	'sp-keystore/std',
 	'sp-runtime/std',
-	# todo: can remove this dependency
 	'sp-staking/std',
 	'log/std',
 	'pallet-im-online/std',

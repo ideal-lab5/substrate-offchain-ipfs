@@ -52,7 +52,7 @@ sp-version = { version = "4.0.0-dev", default-features = false, path = "../../..
 # Used for the node template's RPCs
 frame-system-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, path = "../../../frame/system/rpc/runtime-api/" }
 pallet-transaction-payment-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, path = "../../../frame/transaction-payment/rpc/runtime-api/" }
-pallet-iris-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, path = "../pallets/iris-session/rpc/runtime-api/" }
+pallet-iris-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, path = "../pallets/iris-assets/rpc/runtime-api/" }
 pallet-contracts-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, path = "../../../frame/contracts/rpc/runtime-api/" }
 # Used for runtime benchmarking
 frame-benchmarking = { version = "4.0.0-dev", default-features = false, path = "../../../frame/benchmarking", optional = true }

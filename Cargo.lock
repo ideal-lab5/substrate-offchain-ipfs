@@ -2487,8 +2487,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d39cd93900197114fa1fcb7ae84ca742095eed9442088988ae74fa744e930e77"
 dependencies = [
  "cfg-if 1.0.0",
+ "js-sys",
  "libc",
  "wasi 0.10.0+wasi-snapshot-preview1",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -4984,6 +4986,7 @@ dependencies = [
  "pallet-im-online",
  "pallet-iris-assets",
  "pallet-iris-ledger",
+ "pallet-iris-offchain",
  "pallet-iris-rpc-runtime-api",
  "pallet-iris-session",
  "pallet-randomness-collective-flip",
@@ -5829,6 +5832,26 @@ dependencies = [
  "frame-system",
  "log 0.4.14",
  "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-keystore",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
+name = "pallet-iris-offchain"
+version = "1.0.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log 0.4.14",
+ "pallet-assets",
+ "pallet-balances",
+ "pallet-iris-assets",
  "parity-scale-codec",
  "scale-info",
  "sp-core",
@@ -7951,6 +7974,7 @@ dependencies = [
  "async-trait",
  "derive_more",
  "futures 0.3.21",
+ "getrandom 0.2.5",
  "log 0.4.14",
  "parity-scale-codec",
  "parking_lot 0.11.2",
