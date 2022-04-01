@@ -235,6 +235,7 @@ pub mod pallet {
 	>;
 
 	#[pallet::storage]
+	#[pallet::getter(fn account)]
 	/// The number of units of assets held by any given account.
 	pub(super) type Account<T: Config<I>, I: 'static = ()> = StorageDoubleMap<
 		_,

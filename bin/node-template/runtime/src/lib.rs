@@ -743,12 +743,9 @@ impl_runtime_apis! {
 	*/
 	impl pallet_iris_rpc_runtime_api::IrisApi<Block> for Runtime {
 		fn retrieve_bytes(
-			signature: Bytes,
-			message: Bytes,
-			signer: Bytes,
-			asset_id: Bytes,
+		asset_id: u32,
 		) -> Bytes {
-			IrisAssets::retrieve_bytes(signature, message, signer, asset_id)
+			IrisAssets::retrieve_bytes(asset_id)
 		}
 	}
 

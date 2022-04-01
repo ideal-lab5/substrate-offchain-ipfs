@@ -79,7 +79,7 @@ pub struct Approval<Balance, DepositBalance> {
 #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, Default, MaxEncodedLen, TypeInfo)]
 pub struct AssetBalance<Balance, Extra> {
 	/// The balance.
-	pub(super) balance: Balance,
+	pub balance: Balance,
 	/// Whether the account is frozen.
 	pub(super) is_frozen: bool,
 	/// `true` if this balance gave the account a self-sufficient reference.

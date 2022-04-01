@@ -332,7 +332,7 @@ pub mod pallet {
             Self::deposit_event(Event::AssetBurned(asset_id.clone()));
 
             Ok(())
-        }
+        } 
         
         /// request to fetch bytes from ipfs and add to offchain storage
         /// 
@@ -345,9 +345,12 @@ pub mod pallet {
 			#[pallet::compact] asset_id: T::AssetId,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-            // verify asset access -> should check assets pallet
-            // ensure!(<AssetAccess::<T>>::get(who.clone()).contains(asset_id),
-            //         Error::<T>::InvalidAssetId);
+            // verify asset access
+            // in the future this is where the composable access rules will be executed
+            // for now we just check if they account has a positive balance of assets
+            let true_asset_balance = <pallet_assets::Pallet<T>>::account(asset_id.clone(), who.clone()).balance;
+            let zero_balance: T::Balance = 0u32.into();
+            ensure!(true_asset_balance != zero_balance, Error::<T>::InsufficientBalance);
             // submit command to dataqueue
             let owner = <pallet_assets::Pallet<T>>::asset(asset_id.clone()).unwrap().owner;
             <DataQueue<T>>::mutate(
@@ -454,35 +457,39 @@ impl<T: Config> Pallet<T> {
 	/// ```
 	/// 
     pub fn retrieve_bytes(
-		signature: Bytes,
-		message: Bytes,
-		signer: Bytes,
-		asset_id: Bytes,
+		asset_id: u32,
     ) -> Bytes
 		where <T as pallet_assets::pallet::Config>::AssetId: From<u32> {
+        // TODO: remove all of this.. leaving it for now for posterity
 		// convert Bytes type to types needed for verification
-        let sig: sp_core::sr25519::Signature = sr25519::Signature::from_slice(signature.to_vec().as_ref());
-		let msg: Vec<u8> = message.to_vec();
-		let account_bytes: [u8; 32] = signer.to_vec().try_into().unwrap();
-		let public_key = sr25519::Public::from_raw(account_bytes);
+        // let sig: sp_core::sr25519::Signature = sr25519::Signature::from_slice(signature.to_vec().as_ref());
+		// let msg: Vec<u8> = message.to_vec();
+		// let account_bytes: [u8; 32] = signer.to_vec().try_into().unwrap();
+		// let public_key = sr25519::Public::from_raw(account_bytes);
 
-        // signature verification
-		if sig.verify(msg.as_slice(), &public_key) {
-            // parse asset id
-			let asset_id_u32: u32 = String::from_utf8(asset_id.to_vec()).unwrap().parse().unwrap();
-			let asset_id_type: T::AssetId = asset_id_u32.try_into().unwrap();
-            // verify asset access
-            // if !<AssetAccess::<T>>::get(public_key).contains(asset_id_type) {
-            //     return Bytes(Vec::new());
-            // }
-            // get CID and fetch from offchain storage
-			let cid = <Metadata::<T>>::get(asset_id_type).to_vec();
-			if let Some(data) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &cid) {
-				return Bytes(data.clone());
-			} else {
-				return Bytes(Vec::new());
-			}
-		}
+        // // signature verification
+		// if sig.verify(msg.as_slice(), &public_key) {
+        //     // parse asset id
+		// 	let asset_id_u32: u32 = String::from_utf8(asset_id.to_vec()).unwrap().parse().unwrap();
+		// 	let asset_id_type: T::AssetId = asset_id_u32.try_into().unwrap();
+        //     // verify asset access
+        //     // if !<AssetAccess::<T>>::get(public_key).contains(asset_id_type) {
+        //     //     return Bytes(Vec::new());
+        //     // }
+        //     // get CID and fetch from offchain storage
+		// 	let cid = <Metadata::<T>>::get(asset_id_type).to_vec();
+		// 	if let Some(data) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &cid) {
+		// 		return Bytes(data.clone());
+		// 	} else {
+		// 		return Bytes(Vec::new());
+		// 	}
+		// }
+        let asset_id_type: T::AssetId = asset_id.try_into().unwrap();
+        // get CID and fetch from offchain storage
+        let cid = <Metadata::<T>>::get(asset_id_type).to_vec();
+        if let Some(data) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &cid) {
+            return Bytes(data.clone());
+        }
 		Bytes(Vec::new())
     }
 }

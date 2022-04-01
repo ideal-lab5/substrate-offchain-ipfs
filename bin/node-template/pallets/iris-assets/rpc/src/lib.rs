@@ -4,22 +4,24 @@ use jsonrpc_derive::rpc;
 pub use pallet_iris_rpc_runtime_api::IrisApi as IrisRuntimeApi;
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
-use sp_core::Bytes;
+use sp_core::{
+	Bytes,
+	sr25519::{Signature, Public}
+};
 use sp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT},
 };
 use std::sync::Arc;
+use codec::{Codec, Decode, Encode};
+use sp_std::vec::Vec;
 
 #[rpc]
 pub trait IrisApi<BlockHash> {
 	#[rpc(name = "iris_retrieveBytes")]
 	fn retrieve_bytes(
 		&self,
-		signature: Bytes,
-		message: Bytes,
-		signer: Bytes,
-		asset_id: Bytes,
+		asset_id: u32,
 		at: Option<BlockHash>,
 	) -> Result<Bytes>;
 }
@@ -62,17 +64,14 @@ where
 {
 	fn retrieve_bytes(
 		&self,
-		signature: Bytes,
-		message: Bytes,
-		signer: Bytes,
-		asset_id: Bytes,
+		asset_id: u32,
 		at: Option<<Block as BlockT>::Hash>,
 	) -> Result<Bytes> {
 		let api = self.client.runtime_api();
 		let at = BlockId::hash(at.unwrap_or_else(||
 			self.client.info().best_hash
 		));
-		let runtime_api_result = api.retrieve_bytes(&at, signature, message, signer, asset_id);
+		let runtime_api_result = api.retrieve_bytes(&at, asset_id);
 		runtime_api_result.map_err(|e| RpcError{
 			code: ErrorCode::ServerError(Error::DecodeError.into()),
 			message: "unable to query runtime api".into(),

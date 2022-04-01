@@ -886,8 +886,8 @@ impl<T: Config> Pallet<T> {
 					let cid = <pallet_iris_assets::Pallet<T>>::metadata(
 						asset_id.clone()
 					);	
-					// check balance: TODO: This is bad... should really check the pallet_assets storage to verify this
-					// but this works for now
+					// TODO: is this needed here? at this point we (will) have already
+					// verified the access rules
 					ensure!(
 						<pallet_iris_assets::Pallet<T>>::asset_access(requestor.clone()).contains(&asset_id),
 						Error::<T>::InsufficientBalance
