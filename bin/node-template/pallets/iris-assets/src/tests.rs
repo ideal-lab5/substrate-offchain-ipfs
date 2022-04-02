@@ -2,11 +2,6 @@ use super::*;
 use frame_support::{assert_ok};
 use mock::*;
 use sp_core::Pair;
-// use sp_core::{
-// 	offchain::{testing, OffchainWorkerExt, TransactionPoolExt, OffchainDbExt}
-// };
-// use sp_keystore::{testing::KeyStore, KeystoreExt, SyncCryptoStore};
-// use std::sync::Arc;
 
 #[test]
 fn iris_assets_initial_state() {
@@ -111,8 +106,8 @@ fn iris_assets_submit_ipfs_add_results_works_for_valid_values() {
 
 		// THEN: a new asset class is created
 		// AND: A new entry is added to the AssetClassOwnership StorageDoubleMap
-		let asset_class_owner = crate::AssetClassOwnership::<Test>::get(id.clone());
-		assert_eq!(asset_class_owner, p.clone().public());
+		let new_asset_exists = crate::AssetClassOwnership::<Test>::get(p.public().clone()).contains(&id);
+		assert_eq!(new_asset_exists, true);
 	});
 }
 
@@ -143,8 +138,8 @@ fn iris_assets_mint_tickets_works_for_valid_values() {
 		));
 		// THEN: new assets are created and awarded to the benficiary
 		// AND: A new entry is added to the AssetAccess StorageDoubleMap
-		let asset_class_owner = crate::AssetAccess::<Test>::get(p.clone().public(), id.clone());
-		assert_eq!(asset_class_owner, p.clone().public())
+		let asset_id_is_owned = crate::AssetAccess::<Test>::get(p.clone().public()).contains(&id);
+		assert_eq!(asset_id_is_owned, true);
 	});
 }
 
@@ -174,10 +169,6 @@ fn iris_assets_can_transer_assets() {
 			id.clone(),
 			balance.clone(),
 		));
-		// THEN: new assets are created and awarded to the benficiary
-		// AND: A new entry is added to the AssetAccess StorageDoubleMap
-		let asset_class_owner = crate::AssetAccess::<Test>::get(p.clone().public(), id.clone());
-		assert_eq!(asset_class_owner, p.clone().public());
 		// THEN: I can transfer my owned asset to another address
 		assert_ok!(Iris::transfer_asset(
 			Origin::signed(p.clone().public()),

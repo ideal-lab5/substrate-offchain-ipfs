@@ -1,5 +1,5 @@
 #![cfg(test)]
-use crate::{self as pallet_iris_assets, Config};
+use crate::{self as pallet_iris_ledger, Config};
 use frame_support::{construct_runtime, parameter_types};
 use sp_core::{
 	Pair,
@@ -78,9 +78,9 @@ impl pallet_balances::Config for Test {
 }
 
 impl Config for Test {
-	type Currency = Balances;
 	type Call = Call;
 	type Event = Event;
+	type IrisCurrency = Balances;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
