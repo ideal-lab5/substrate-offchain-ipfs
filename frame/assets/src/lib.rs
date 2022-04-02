@@ -225,6 +225,7 @@ pub mod pallet {
 	}
 
 	#[pallet::storage]
+	#[pallet::getter(fn asset)]
 	/// Details of an asset.
 	pub(super) type Asset<T: Config<I>, I: 'static = ()> = StorageMap<
 		_,
@@ -234,6 +235,7 @@ pub mod pallet {
 	>;
 
 	#[pallet::storage]
+	#[pallet::getter(fn account)]
 	/// The number of units of assets held by any given account.
 	pub(super) type Account<T: Config<I>, I: 'static = ()> = StorageDoubleMap<
 		_,

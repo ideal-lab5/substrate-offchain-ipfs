@@ -19,6 +19,7 @@ jsonrpc-core-client = "18.0.0"
 jsonrpc-derive = "18.0.0"
 
 sp-api = { version = "4.0.0-dev", path = "../../../../../primitives/api" }
+sp-std = { default-features = false, version = "4.0.0-dev", path = "../../../../../primitives/std" }
 sp-blockchain = { version = "4.0.0-dev", path = "../../../../../primitives/blockchain" }
 sp-core = { version = "4.0.0-dev", path = "../../../../../primitives/core" }
 sp-rpc = { version = "4.0.0-dev", path = "../../../../../primitives/rpc" }

@@ -253,19 +253,6 @@ fn iris_session_join_storage_pool() {
 	});
 }
 
-// RPC tests
-
-#[test]
-fn iris_session_submit_rpc_ready_works_for_valid_values() {
-	let (p, _) = sp_core::sr25519::Pair::generate();
-	new_test_ext_funded(p.clone()).execute_with(|| {
-		assert_ok!(IrisSession::submit_rpc_ready(
-			Origin::signed(p.clone().public()),
-			1,
-		));
-	});
-}
-
 // test OCW functionality
 // can add bytes to network
 #[test]

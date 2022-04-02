@@ -16,6 +16,7 @@ targets = ["x86_64-unknown-linux-gnu"]
 codec = { package = "parity-scale-codec", version = "2.0.0", default-features = false, features = ["derive"] }
 sp-api = { version = "4.0.0-dev", default-features = false, path = "../../../../../../primitives/api" }
 sp-core = { version = "4.0.0-dev", default-features = false, path = "../../../../../../primitives/core" }
+sp-std = { default-features = false, version = "4.0.0-dev", path = "../../../../../../primitives/std" }
 sp-runtime = { version = "4.0.0-dev", default-features = false, path = "../../../../../../primitives/runtime" }
 pallet-iris-session = { version = "1.0.0", default-features = false, path = "../../../iris-session" }
 
@@ -26,5 +27,6 @@ std = [
 	"sp-api/std",
 	"sp-core/std",
 	"sp-runtime/std",
+	"sp-std/std",
 	"pallet-iris-session/std",
 ]

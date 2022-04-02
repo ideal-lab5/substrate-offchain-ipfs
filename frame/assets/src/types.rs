@@ -30,7 +30,7 @@ pub(super) type DepositBalanceOf<T, I = ()> =
 #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
 pub struct AssetDetails<Balance, AccountId, DepositBalance> {
 	/// Can change `owner`, `issuer`, `freezer` and `admin` accounts.
-	pub(super) owner: AccountId,
+	pub owner: AccountId,
 	/// Can mint tokens.
 	pub(super) issuer: AccountId,
 	/// Can thaw tokens, force transfers and burn tokens from any account.
@@ -79,7 +79,7 @@ pub struct Approval<Balance, DepositBalance> {
 #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, Default, MaxEncodedLen, TypeInfo)]
 pub struct AssetBalance<Balance, Extra> {
 	/// The balance.
-	pub(super) balance: Balance,
+	pub balance: Balance,
 	/// Whether the account is frozen.
 	pub(super) is_frozen: bool,
 	/// `true` if this balance gave the account a self-sufficient reference.

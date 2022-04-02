@@ -1,7 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-//! # Iris Storage Pallet
-//!
+//! # Iris Assets Pallet
 //!
 //! ## Overview
 //!
@@ -27,16 +26,23 @@ use frame_system::{
     self as system, ensure_signed,
 };
 
-use sp_core::offchain::OpaqueMultiaddr;
+use sp_core::{
+    offchain::{OpaqueMultiaddr, StorageKind},
+    Bytes,
+};
 
 use sp_runtime::{
     RuntimeDebug,
-    traits::StaticLookup,
+    traits::{StaticLookup, Verify, IdentifyAccount},
 };
 use sp_std::{
     vec::Vec,
     prelude::*,
 };
+use scale_info::prelude::string::String;
+
+use core::convert::TryInto;
+use sp_core::sr25519;
 
 #[derive(Encode, Decode, RuntimeDebug, PartialEq, TypeInfo)]
 pub enum DataCommand<LookupSource, AssetId, Balance, AccountId> {
@@ -95,7 +101,7 @@ pub mod pallet {
             T::Balance,
             T::AccountId>
         >,
-        ValueQuery
+        ValueQuery,
     >;
 
     /// A collection of asset ids
@@ -109,15 +115,23 @@ pub mod pallet {
         ValueQuery,
     >;
 
-    /// Store the map associating owned CID to a specific asset ID
-    ///
-    /// asset_admin_accountid -> CID -> asset id
+    // TODO: Combine the following maps into one using a custom struct
+    /// map asset id to admin account
     #[pallet::storage]
     #[pallet::getter(fn asset_class_ownership)]
-    pub(super) type AssetClassOwnership<T: Config> = StorageDoubleMap<
+    pub(super) type AssetClassOwnership<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
         T::AccountId,
+        Vec<T::AssetId>,
+        ValueQuery,
+    >;
+
+    // map asset id to cid 
+    #[pallet::storage]
+    #[pallet::getter(fn metadata)]
+    pub(super) type Metadata<T: Config> = StorageMap<
+        _,
         Blake2_128Concat,
         T::AssetId,
         Vec<u8>,
@@ -127,15 +141,15 @@ pub mod pallet {
     /// Store the map associating a node with the assets to which they have access
     ///
     /// asset_owner_accountid -> CID -> asset_class_owner_accountid
+    /// TODO: Make this a regular StorageMap, T::AccountId -> Vec<T::AssetId>
+    /// 
     #[pallet::storage]
     #[pallet::getter(fn asset_access)]
-    pub(super) type AssetAccess<T: Config> = StorageDoubleMap<
+    pub(super) type AssetAccess<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
         T::AccountId,
-        Blake2_128Concat,
-        T::AssetId,
-        T::AccountId,
+        Vec<T::AssetId>,
         ValueQuery,
     >;
 
@@ -150,6 +164,8 @@ pub mod pallet {
         AssetClassCreated(T::AssetId),
         /// A new asset was created (tickets minted)
         AssetCreated(T::AssetId),
+        /// An asset was burned succesfully
+        AssetBurned(T::AssetId),
         /// A node has published ipfs identity results on chain
         PublishedIdentity(T::AccountId),
         QueuedDataToPin,
@@ -177,6 +193,8 @@ pub mod pallet {
         NoSuchAssetClass,
         /// the account does not have a sufficient balance
         InsufficientBalance,
+        /// the asset id is unknown or you do not have access to it
+        InvalidAssetId,
 	}
 
     #[pallet::hooks]
@@ -210,8 +228,8 @@ pub mod pallet {
             addr: Vec<u8>,
             cid: Vec<u8>,
             name: Vec<u8>,
-            id: T::AssetId,
-            balance: T::Balance,
+            #[pallet::compact] id: T::AssetId,
+            #[pallet::compact] balance: T::Balance,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             let multiaddr = OpaqueMultiaddr(addr);
@@ -240,21 +258,81 @@ pub mod pallet {
         pub fn mint(
             origin: OriginFor<T>,
             beneficiary: <T::Lookup as StaticLookup>::Source,
-            asset_id: T::AssetId,
+            #[pallet::compact] asset_id: T::AssetId,
             #[pallet::compact] amount: T::Balance,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            ensure!(AssetClassOwnership::<T>::contains_key(who.clone(), asset_id.clone()), Error::<T>::NoSuchOwnedContent);
 
             let new_origin = system::RawOrigin::Signed(who.clone()).into();
             let beneficiary_accountid = T::Lookup::lookup(beneficiary.clone())?;
-            <pallet_assets::Pallet<T>>::mint(new_origin, asset_id.clone(), beneficiary.clone(), amount)
-                .map_err(|_| Error::<T>::CantMintAssets)?;
-            <AssetAccess<T>>::insert(beneficiary_accountid.clone(), asset_id.clone(), who.clone());
+            <pallet_assets::Pallet<T>>::mint(
+                new_origin, 
+                asset_id.clone(), 
+                beneficiary.clone(), 
+                amount
+            )?;
+            
+            <AssetAccess<T>>::mutate(beneficiary_accountid.clone(), |ids| { ids.push(asset_id.clone()) });
         
             Self::deposit_event(Event::AssetCreated(asset_id.clone()));
             Ok(())
         }
+
+        /// transfer an amount of owned assets to another address
+        /// 
+        /// * `target`: The target node to receive the assets
+        /// * `asset_id`: The asset id of the asset to be transferred
+        /// * `amount`: The amount of the asset to transfer
+        /// 
+        #[pallet::weight(100)]
+        pub fn transfer_asset(
+            origin: OriginFor<T>,
+            target: <T::Lookup as StaticLookup>::Source,
+            #[pallet::compact] asset_id: T::AssetId,
+            #[pallet::compact] amount: T::Balance,
+        ) -> DispatchResult {
+            let current_owner = ensure_signed(origin)?;
+
+            let new_origin = system::RawOrigin::Signed(current_owner.clone()).into();
+            <pallet_assets::Pallet<T>>::transfer(
+                new_origin,
+                asset_id.clone(),
+                target.clone(),
+                amount.clone(),
+            )?;
+            
+            let target_account = T::Lookup::lookup(target)?;
+            <AssetAccess<T>>::mutate(target_account.clone(), |ids| { ids.push(asset_id.clone()) });
+
+            Ok(())
+        }
+
+        /// Burns the amount of assets
+        /// 
+        /// * `target`: the target account to burn assets from
+        /// * `asset_id`: The asset id to burn
+        /// * `amount`: The amount of assets to burn
+        /// 
+        #[pallet::weight(100)]
+        pub fn burn(
+            origin: OriginFor<T>,
+            target: <T::Lookup as StaticLookup>::Source,
+            #[pallet::compact] asset_id: T::AssetId,
+            #[pallet::compact] amount: T::Balance,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            let new_origin = system::RawOrigin::Signed(who.clone()).into();
+            <pallet_assets::Pallet<T>>::burn(
+                new_origin,
+                asset_id.clone(),
+                target,
+                amount.clone(),
+            )?;
+
+            Self::deposit_event(Event::AssetBurned(asset_id.clone()));
+
+            Ok(())
+        } 
         
         /// request to fetch bytes from ipfs and add to offchain storage
         /// 
@@ -264,15 +342,21 @@ pub mod pallet {
 		#[pallet::weight(100)]
 		pub fn request_bytes(
 			origin: OriginFor<T>,
-			owner: <T::Lookup as StaticLookup>::Source,
-			asset_id: T::AssetId,
+			#[pallet::compact] asset_id: T::AssetId,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-            let owner_account = T::Lookup::lookup(owner)?;
+            // verify asset access
+            // in the future this is where the composable access rules will be executed
+            // for now we just check if they account has a positive balance of assets
+            let true_asset_balance = <pallet_assets::Pallet<T>>::account(asset_id.clone(), who.clone()).balance;
+            let zero_balance: T::Balance = 0u32.into();
+            ensure!(true_asset_balance != zero_balance, Error::<T>::InsufficientBalance);
+            // submit command to dataqueue
+            let owner = <pallet_assets::Pallet<T>>::asset(asset_id.clone()).unwrap().owner;
             <DataQueue<T>>::mutate(
                 |queue| queue.push(DataCommand::CatBytes(
                     who.clone(),
-                    owner_account.clone(),
+                    owner.clone(),
                     asset_id.clone(),
                 )));
 			Ok(())
@@ -291,17 +375,16 @@ pub mod pallet {
             origin: OriginFor<T>,
             admin: <T::Lookup as StaticLookup>::Source,
             cid: Vec<u8>,
-            id: T::AssetId,
-            balance: T::Balance,
+            #[pallet::compact] id: T::AssetId,
+            #[pallet::compact] balance: T::Balance,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            let new_origin = system::RawOrigin::Signed(who).into();
-
+            let which_admin = T::Lookup::lookup(admin.clone())?;
+            let new_origin = system::RawOrigin::Signed(which_admin.clone()).into();
             <pallet_assets::Pallet<T>>::create(new_origin, id.clone(), admin.clone(), balance)
                 .map_err(|_| Error::<T>::CantCreateAssetClass)?;
-            
-            let which_admin = T::Lookup::lookup(admin.clone())?;
-            <AssetClassOwnership<T>>::insert(which_admin, id.clone(), cid.clone());
+            <Metadata<T>>::insert(id.clone(), cid.clone());
+            <AssetClassOwnership<T>>::mutate(which_admin, |ids| { ids.push(id) });
             <AssetIds<T>>::mutate(|ids| ids.push(id.clone()));
             
             Self::deposit_event(Event::AssetClassCreated(id.clone()));
@@ -311,21 +394,24 @@ pub mod pallet {
 
         /// Add a request to pin a cid to the DataQueue for your embedded IPFS node
         /// 
-        /// * asset_owner: The owner of the asset class
-        /// * asset_id: The asset id of some asset class
+        /// * `asset_owner`: The owner of the asset class
+        /// * `asset_id`: The asset id of some asset class
         ///
         #[pallet::weight(100)]
         pub fn insert_pin_request(
             origin: OriginFor<T>,
             asset_owner: T::AccountId,
-            asset_id: T::AssetId,
+            #[pallet::compact] asset_id: T::AssetId,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            ensure!(<AssetClassOwnership<T>>::contains_key(asset_owner.clone(), asset_id.clone()), Error::<T>::NoSuchOwnedContent);
-            let cid = <AssetClassOwnership<T>>::get(
-                asset_owner.clone(), 
-                asset_id.clone(),
+
+            let asset_id_owner = <pallet_assets::Pallet<T>>::asset(asset_id.clone()).unwrap().owner;
+            ensure!(
+                asset_id_owner == asset_owner.clone(),
+                Error::<T>::NoSuchOwnedContent
             );
+
+            let cid: Vec<u8> = <Metadata<T>>::get(asset_id.clone());
             <DataQueue<T>>::mutate(
                 |queue| queue.push(DataCommand::PinCID( 
                     who.clone(),
@@ -342,5 +428,68 @@ pub mod pallet {
 }
 
 impl<T: Config> Pallet<T> {
+/// implementation for RPC runtime API to retrieve bytes from the node's local storage
+    /// 
+    /// * `signature`: The signer's signature as bytes
+    /// * `message`: The signed message as bytes
+	/// * `signer`: The public key of the message signer as bytes
+	/// * `asset_id`: The asset id associated with some data
+    ///
+	/// Note: If in the future you want to make sig/key types dynamic, add to trait def:
+	/// 
+	///```
+	/// pub trait Config: frame_system::Config {
+	///     ...
+	///    type Signature: Verify<Signer = Self::PublicKey> + Encode + Decode + Member;
+    ///    type PublicKey: IdentifyAccount<AccountId = Self::PublicKey> + Encode + Decode + Member;
+	///    ...
+	/// }
+	/// ```
+	/// 
+	/// And in your runtime:
+	/// ```
+	/// my_pallet::Config for runtime {
+	///     ...
+	///     type Signature = <your sig type>
+	///     type PublicKey = <your pub key type>
+	///     ....
+	/// }
+	/// ```
+	/// 
+    pub fn retrieve_bytes(
+		asset_id: u32,
+    ) -> Bytes
+		where <T as pallet_assets::pallet::Config>::AssetId: From<u32> {
+        // TODO: remove all of this.. leaving it for now for posterity
+		// convert Bytes type to types needed for verification
+        // let sig: sp_core::sr25519::Signature = sr25519::Signature::from_slice(signature.to_vec().as_ref());
+		// let msg: Vec<u8> = message.to_vec();
+		// let account_bytes: [u8; 32] = signer.to_vec().try_into().unwrap();
+		// let public_key = sr25519::Public::from_raw(account_bytes);
 
+        // // signature verification
+		// if sig.verify(msg.as_slice(), &public_key) {
+        //     // parse asset id
+		// 	let asset_id_u32: u32 = String::from_utf8(asset_id.to_vec()).unwrap().parse().unwrap();
+		// 	let asset_id_type: T::AssetId = asset_id_u32.try_into().unwrap();
+        //     // verify asset access
+        //     // if !<AssetAccess::<T>>::get(public_key).contains(asset_id_type) {
+        //     //     return Bytes(Vec::new());
+        //     // }
+        //     // get CID and fetch from offchain storage
+		// 	let cid = <Metadata::<T>>::get(asset_id_type).to_vec();
+		// 	if let Some(data) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &cid) {
+		// 		return Bytes(data.clone());
+		// 	} else {
+		// 		return Bytes(Vec::new());
+		// 	}
+		// }
+        let asset_id_type: T::AssetId = asset_id.try_into().unwrap();
+        // get CID and fetch from offchain storage
+        let cid = <Metadata::<T>>::get(asset_id_type).to_vec();
+        if let Some(data) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &cid) {
+            return Bytes(data.clone());
+        }
+		Bytes(Vec::new())
+    }
 }

@@ -42,14 +42,15 @@ pub use pallet::*;
 use sp_runtime::traits::{Convert, Zero};
 use sp_staking::offence::{Offence, OffenceError, ReportOffence};
 use sp_std::{
-	collections::{ btree_set::BTreeSet, btree_map::BTreeMap },
+	collections::{btree_set::BTreeSet, btree_map::BTreeMap},
 	str,
 	vec::Vec,
 	prelude::*
 };
 use sp_core::{
     offchain::{
-        Duration, IpfsRequest, IpfsResponse, OpaqueMultiaddr, Timestamp, StorageKind,
+        Duration, IpfsRequest, IpfsResponse, 
+		OpaqueMultiaddr, Timestamp, StorageKind,
     },
 	crypto::KeyTypeId,
     Bytes,
@@ -145,6 +146,7 @@ pub mod pallet {
 	pub trait Config: CreateSignedTransaction<Call<Self>> + 
 					  frame_system::Config +
 					  pallet_session::Config +
+					  pallet_assets::Config + 
 					  pallet_iris_assets::Config 
 	{
 		/// The Event type.
@@ -723,23 +725,6 @@ impl<T: Config> Pallet<T> {
 			.build()
 	}
 
-	/// implementation for RPC runtime API to retrieve bytes from the node's local storage
-    /// 
-    /// * public_key: The account's public key as bytes
-    /// * signature: The signer's signature as bytes
-    /// * message: The signed message as bytes
-    ///
-    pub fn retrieve_bytes(
-		message: Bytes,
-    ) -> Bytes {
-        let message_vec: Vec<u8> = message.to_vec();
-		if let Some(data) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &message_vec) {
-			Bytes(data.clone())
-		} else {
-			Bytes(Vec::new())
-		}
-    }
-	
 	 /// send a request to the local IPFS node; can only be called be an off-chain worker
 	 fn ipfs_request(
         req: IpfsRequest,
@@ -898,11 +883,13 @@ impl<T: Config> Pallet<T> {
 					let expected_pub_key = <SubstrateIpfsBridge::<T>>::get(requestor.clone());
 					ensure!(public_key == expected_pub_key, Error::<T>::BadOrigin);
 
-					let cid = <pallet_iris_assets::Pallet<T>>::asset_class_ownership(
-						owner.clone(), asset_id.clone()
+					let cid = <pallet_iris_assets::Pallet<T>>::metadata(
+						asset_id.clone()
 					);	
+					// TODO: is this needed here? at this point we (will) have already
+					// verified the access rules
 					ensure!(
-						owner.clone() == <pallet_iris_assets::Pallet<T>>::asset_access(requestor.clone(), asset_id.clone()),
+						<pallet_iris_assets::Pallet<T>>::asset_access(requestor.clone()).contains(&asset_id),
 						Error::<T>::InsufficientBalance
 					);
 					match Self::ipfs_request(IpfsRequest::CatBytes(cid.clone()), deadline) {
@@ -1005,6 +992,7 @@ impl<T: Config> pallet_session::SessionManager<T::AccountId> for Pallet<T> {
 
 	fn end_session(end_index: u32) {
 		log::info!("Ending session with index: {:?}", end_index);
+		// TODO: calculate which validators should fetch which data? not ideal really.. idk
 		Self::mark_dead_validators(end_index);
 	}
 

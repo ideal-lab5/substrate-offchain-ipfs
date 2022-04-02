@@ -1,13 +1,16 @@
 #![cfg(test)]
-use crate::{self as pallet_iris_assets, Config};
+use crate::{self as pallet_iris_ledger, Config};
 use frame_support::{construct_runtime, parameter_types};
 use sp_core::{
 	Pair,
 	H256,
+	sr25519::{
+		Signature,
+	},
 };
 use sp_runtime::{
-	testing::Header,
-	traits::{BlakeTwo256, Extrinsic as ExtrinsicT, IdentityLookup},
+	testing::{Header, TestXt},
+	traits::{BlakeTwo256, Extrinsic as ExtrinsicT, IdentityLookup, IdentifyAccount, Verify},
 };
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
@@ -22,8 +25,7 @@ construct_runtime!(
 	{
 		System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
-		Assets: pallet_assets::{Pallet, Storage, Event<T>},
-		Iris: pallet_iris_assets::{Pallet, Call, Storage, Event<T>},
+		IrisLedger: pallet_iris_ledger::{Pallet, Call, Storage, Event<T>},
 	}
 );
 
@@ -75,34 +77,10 @@ impl pallet_balances::Config for Test {
 	type WeightInfo = ();
 }
 
-parameter_types! {
-	pub const AssetDeposit: u64 = 1;
-	pub const ApprovalDeposit: u64 = 1;
-	pub const StringLimit: u32 = 50;
-	pub const MetadataDepositBase: u64 = 1;
-	pub const MetadataDepositPerByte: u64 = 1;
-}
-
-impl pallet_assets::Config for Test {
-	type Event = Event;
-	type Balance = u64;
-	type AssetId = u32;
-	type Currency = Balances;
-	type ForceOrigin = frame_system::EnsureRoot<sp_core::sr25519::Public>;
-	type AssetDeposit = AssetDeposit;
-	type MetadataDepositBase = MetadataDepositBase;
-	type MetadataDepositPerByte = MetadataDepositPerByte;
-	type ApprovalDeposit = ApprovalDeposit;
-	type StringLimit = StringLimit;
-	type Freezer = ();
-	type WeightInfo = ();
-	type Extra = ();
-}
-
 impl Config for Test {
-	type Currency = Balances;
 	type Call = Call;
 	type Event = Event;
+	type IrisCurrency = Balances;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
