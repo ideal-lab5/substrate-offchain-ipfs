@@ -20,12 +20,25 @@ pallet-aura = { version = "4.0.0-dev", default-features = false, path = "../../.
 pallet-balances = { version = "4.0.0-dev", default-features = false, path = "../../../frame/balances" }
 frame-support = { version = "4.0.0-dev", default-features = false, path = "../../../frame/support" }
 pallet-grandpa = { version = "4.0.0-dev", default-features = false, path = "../../../frame/grandpa" }
+# TODO: REMOVE THIS
 pallet-randomness-collective-flip = { version = "4.0.0-dev", default-features = false, path = "../../../frame/randomness-collective-flip" }
 pallet-sudo = { version = "4.0.0-dev", default-features = false, path = "../../../frame/sudo" }
 frame-system = { version = "4.0.0-dev", default-features = false, path = "../../../frame/system" }
 frame-try-runtime = { version = "0.10.0-dev", default-features = false, path = "../../../frame/try-runtime", optional = true }
+pallet-im-online = { version = "4.0.0-dev", default-features = false, path = "../../../frame/im-online" }
+pallet-assets = { version = "4.0.0-dev", default-features = false, path = "../../../frame/assets" }
+pallet-session = { version = "4.0.0-dev", default-features = false, features = ["historical"], path = "../../../frame/session" }
+pallet-iris-assets = { version = "1.0.0", default-features = false, path = "../pallets/iris-assets" }
+pallet-iris-session = { version = "1.0.0", default-features = false, path = "../pallets/iris-session" }
+pallet-iris-ledger = { version = "1.0.0", default-features = false, path = "../pallets/iris-ledger" }
 pallet-timestamp = { version = "4.0.0-dev", default-features = false, path = "../../../frame/timestamp" }
 pallet-transaction-payment = { version = "4.0.0-dev", default-features = false, path = "../../../frame/transaction-payment" }
+pallet-contracts = { version = "4.0.0-dev", default-features = false, path = "../../../frame/contracts" }
+pallet-contracts-primitives = { version = "6.0.0", default-features = false, path = "../../../frame/contracts/common/" }
+
+# primitives
+node-primitives = { version = "2.0.0", default-features = false, path = "../../node/primitives" }
+# frame-system = { version = "4.0.0-dev", default-features = false, path = "../../../frame/system" }
 frame-executive = { version = "4.0.0-dev", default-features = false, path = "../../../frame/executive" }
 sp-api = { version = "4.0.0-dev", default-features = false, path = "../../../primitives/api" }
 sp-block-builder = { version = "4.0.0-dev", default-features = false, path = "../../../primitives/block-builder"}
@@ -42,14 +55,15 @@ sp-version = { version = "5.0.0", default-features = false, path = "../../../pri
 # Used for the node template's RPCs
 frame-system-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, path = "../../../frame/system/rpc/runtime-api/" }
 pallet-transaction-payment-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, path = "../../../frame/transaction-payment/rpc/runtime-api/" }
-
+pallet-iris-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, path = "../pallets/iris-assets/rpc/runtime-api/" }
+pallet-contracts-rpc-runtime-api = { version = "4.0.0-dev", default-features = false, path = "../../../frame/contracts/rpc/runtime-api/" }
 # Used for runtime benchmarking
 frame-benchmarking = { version = "4.0.0-dev", default-features = false, path = "../../../frame/benchmarking", optional = true }
 frame-system-benchmarking = { version = "4.0.0-dev", default-features = false, path = "../../../frame/system/benchmarking", optional = true }
+
 hex-literal = { version = "0.3.4", optional = true }
 
-# Local Dependencies
-pallet-template = { version = "4.0.0-dev", default-features = false, path = "../pallets/template" }
+log = { version = "0.4.14", default-features = false }
 
 [build-dependencies]
 substrate-wasm-builder = { version = "5.0.0-dev", path = "../../../utils/wasm-builder" }
@@ -68,10 +82,16 @@ std = [
 	"pallet-grandpa/std",
 	"pallet-randomness-collective-flip/std",
 	"pallet-sudo/std",
-	"pallet-template/std",
+	"pallet-im-online/std",
+	"pallet-iris-assets/std",
+	"pallet-iris-ledger/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
+	"pallet-iris-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
+	"pallet-assets/std",
+	"pallet-session/std",
+	"pallet-iris-session/std",
 	"sp-api/std",
 	"sp-block-builder/std",
 	"sp-consensus-aura/std",
@@ -83,6 +103,9 @@ std = [
 	"sp-std/std",
 	"sp-transaction-pool/std",
 	"sp-version/std",
+	"pallet-contracts/std",
+	"pallet-contracts-primitives/std",
+	"pallet-contracts-rpc-runtime-api/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
@@ -91,9 +114,12 @@ runtime-benchmarks = [
 	"frame-system/runtime-benchmarks",
 	"hex-literal",
 	"pallet-balances/runtime-benchmarks",
-	"pallet-template/runtime-benchmarks",
+	"pallet-iris-assets/runtime-benchmarks",
+	"pallet-iris-session/std",
 	"pallet-timestamp/runtime-benchmarks",
+	"pallet-assets/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
+	"pallet-contracts/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-executive/try-runtime",
@@ -105,4 +131,8 @@ try-runtime = [
 	"pallet-sudo/try-runtime",
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
+	"pallet-contracts/try-runtime",
 ]
+# Make contract callable functions marked as __unstable__ available. Do not enable
+# on live chains as those are subject to change.
+contracts-unstable-interface = ["pallet-contracts/unstable-interface"]

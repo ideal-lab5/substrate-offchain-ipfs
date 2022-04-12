@@ -1,0 +1,63 @@
+[package]
+authors = ['Iridium <https://github.com/iridium-labs>']
+edition = '2018'
+name = 'pallet-iris-session'
+version = "1.0.0"
+license = "Unlicense"
+homepage = "https://substrate.dev"
+repository = "https://github.com/substrate-developer-hub/substrate-node-template/"
+description = "FRAME pallet template for Iris storage providers."
+readme = "README.md"
+publish = false
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = [
+	"derive",
+] }
+scale-info = { version = "2.0", default-features = false, features = ["derive"] }
+
+sp-io = { default-features = false, version = "6.0.0", path = "../../../../primitives/io" }
+sp-std = { default-features = false, version = "4.0.0-dev", path = "../../../../primitives/std" }
+sp-core = { default-features = false, version = "6.0.0", path = "../../../../primitives/core" }
+sp-runtime = { default-features = false, version = "6.0.0", path = "../../../../primitives/runtime" }
+sp-staking = { version = "4.0.0-dev", default-features = false, path = "../../../../primitives/staking" }
+sp-keystore = { version = "0.12.0", path = "../../../../primitives/keystore", optional = true }
+
+frame-support = { default-features = false, version = "4.0.0-dev", path = "../../../../frame/support" }
+frame-system = { default-features = false, version = "4.0.0-dev", path = "../../../../frame/system" }
+frame-benchmarking = { default-features = false, version = "4.0.0-dev", path = "../../../../frame/benchmarking", optional = true }
+log = { version = "0.4.14", default-features = false }
+
+pallet-im-online = { version = "4.0.0-dev", default-features = false, path = "../../../../frame/im-online" }
+pallet-session = { version = "4.0.0-dev", default-features = false, features = ["historical"], path = "../../../../frame/session" }
+pallet-iris-assets = { version = "1.0.0", default-features = false, path = "../iris-assets" }
+pallet-assets = { version = "4.0.0-dev", default-features = false, path = "../../../../frame/assets" }
+
+[dev-dependencies]
+pallet-balances = { version = "4.0.0-dev", default-features = false, path = "../../../../frame/balances" }
+
+[features]
+default = ['std']
+std = [
+	'codec/std',
+	'scale-info/std',
+	'frame-support/std',
+	'frame-system/std',
+	'frame-benchmarking/std',
+	'sp-io/std',
+	'sp-std/std',
+	'sp-keystore/std',
+	'sp-runtime/std',
+	'sp-staking/std',
+	'log/std',
+	'pallet-im-online/std',
+	'pallet-session/std',
+	'pallet-assets/std',
+	'pallet-iris-assets/std',
+]
+
+runtime-benchmarks = ["frame-benchmarking"]
+try-runtime = ["frame-support/try-runtime"]

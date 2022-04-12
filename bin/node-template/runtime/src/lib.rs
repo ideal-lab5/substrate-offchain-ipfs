@@ -11,38 +11,59 @@ use pallet_grandpa::{
 };
 use sp_api::impl_runtime_apis;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
+use sp_core::{crypto::KeyTypeId, OpaqueMetadata, Encode, Bytes};
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
-	traits::{AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, Verify},
-	transaction_validity::{TransactionSource, TransactionValidity},
+	traits::{
+		AccountIdLookup,
+		BlakeTwo256,
+		Block as BlockT, 
+		IdentifyAccount,
+		NumberFor,
+		Verify,
+		SaturatedConversion,
+		OpaqueKeys,
+	 },
+	transaction_validity::{TransactionSource, TransactionValidity, TransactionPriority},
 	ApplyExtrinsicResult, MultiSignature,
 };
 use sp_std::prelude::*;
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
+use frame_system::{
+	limits::{BlockLength, BlockWeights},
+	EnsureRoot,
+};
+use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
+// use pallet_contracts::weights::WeightInfo;
+use frame_support::traits::Nothing;
 
 // A few exports that help ease life for downstream crates.
 pub use frame_support::{
 	construct_runtime, parameter_types,
 	traits::{ConstU128, ConstU32, ConstU8, KeyOwnerProofSystem, Randomness, StorageInfo},
+	debug,
 	weights::{
 		constants::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight, WEIGHT_PER_SECOND},
-		IdentityFee, Weight,
+		IdentityFee, Weight, DispatchClass,
 	},
 	StorageValue,
 };
 pub use frame_system::Call as SystemCall;
 pub use pallet_balances::Call as BalancesCall;
 pub use pallet_timestamp::Call as TimestampCall;
+pub use pallet_assets::Call as AssetsCall;
 use pallet_transaction_payment::CurrencyAdapter;
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
 pub use sp_runtime::{Perbill, Permill};
 
+
 /// Import the template pallet.
-pub use pallet_template;
+pub use pallet_iris_assets;
+pub use pallet_iris_session;
+pub use pallet_iris_ledger;
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -55,13 +76,17 @@ pub type Signature = MultiSignature;
 pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
 
 /// Balance of an account.
-pub type Balance = u128;
+// pub type Balance = u128;
 
 /// Index of a transaction in the chain.
 pub type Index = u32;
 
 /// A hash of some data used by the chain.
 pub type Hash = sp_core::H256;
+
+pub const MILLICENTS: Balance = 1_000_000_000;
+pub const CENTS: Balance = 1_000 * MILLICENTS; // assume this is worth about a cent.
+pub const DOLLARS: Balance = 100 * CENTS;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -83,8 +108,15 @@ pub mod opaque {
 		pub struct SessionKeys {
 			pub aura: Aura,
 			pub grandpa: Grandpa,
+			pub im_online: ImOnline,
 		}
 	}
+}
+
+use node_primitives::Balance;
+
+pub const fn deposit(items: u32, bytes: u32) -> Balance {
+	items as Balance * 15 * CENTS + (bytes as Balance) * 6 * CENTS
 }
 
 // To learn more about runtime versioning and what each of the following value means:
@@ -129,17 +161,40 @@ pub fn native_version() -> NativeVersion {
 	NativeVersion { runtime_version: VERSION, can_author_with: Default::default() }
 }
 
+
+/// We assume that ~10% of the block weight is consumed by `on_initialize` handlers.
+/// This is used to limit the maximal weight of a single extrinsic.
+const AVERAGE_ON_INITIALIZE_RATIO: Perbill = Perbill::from_percent(10);
+/// We allow `Normal` extrinsics to fill up the block up to 75%, the rest can be used
+/// by  Operational  extrinsics.
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
+/// We allow for 2 seconds of compute with a 6 second average block time.
+const MAXIMUM_BLOCK_WEIGHT: Weight = 2 * WEIGHT_PER_SECOND;
 
 parameter_types! {
-	pub const Version: RuntimeVersion = VERSION;
 	pub const BlockHashCount: BlockNumber = 2400;
-	/// We allow for 2 seconds of compute with a 6 second average block time.
-	pub BlockWeights: frame_system::limits::BlockWeights = frame_system::limits::BlockWeights
-		::with_sensible_defaults(2 * WEIGHT_PER_SECOND, NORMAL_DISPATCH_RATIO);
-	pub BlockLength: frame_system::limits::BlockLength = frame_system::limits::BlockLength
-		::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
-	pub const SS58Prefix: u8 = 42;
+	pub const Version: RuntimeVersion = VERSION;
+	pub RuntimeBlockLength: BlockLength =
+		BlockLength::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
+	pub RuntimeBlockWeights: BlockWeights = BlockWeights::builder()
+		.base_block(BlockExecutionWeight::get())
+		.for_class(DispatchClass::all(), |weights| {
+			weights.base_extrinsic = ExtrinsicBaseWeight::get();
+		})
+		.for_class(DispatchClass::Normal, |weights| {
+			weights.max_total = Some(NORMAL_DISPATCH_RATIO * MAXIMUM_BLOCK_WEIGHT);
+		})
+		.for_class(DispatchClass::Operational, |weights| {
+			weights.max_total = Some(MAXIMUM_BLOCK_WEIGHT);
+			// Operational transactions have some extra reserved space, so that they
+			// are included even if block reached `MAXIMUM_BLOCK_WEIGHT`.
+			weights.reserved = Some(
+				MAXIMUM_BLOCK_WEIGHT - NORMAL_DISPATCH_RATIO * MAXIMUM_BLOCK_WEIGHT
+			);
+		})
+		.avg_block_initialization(AVERAGE_ON_INITIALIZE_RATIO)
+		.build_or_panic();
+	pub const SS58Prefix: u16 = 42;
 }
 
 // Configure FRAME pallets to include in runtime.
@@ -148,11 +203,12 @@ impl frame_system::Config for Runtime {
 	/// The basic call filter to use in dispatchable.
 	type BaseCallFilter = frame_support::traits::Everything;
 	/// Block & extrinsics weights: base values and limits.
-	type BlockWeights = BlockWeights;
+	type BlockWeights = RuntimeBlockWeights;
 	/// The maximum length of a block (in bytes).
-	type BlockLength = BlockLength;
+	type BlockLength = RuntimeBlockLength;
 	/// The identifier used to distinguish between accounts.
 	type AccountId = AccountId;
+	// type AccountId = From<[u8; 32]>;
 	/// The aggregated dispatch type that is available for extrinsics.
 	type Call = Call;
 	/// The lookup mechanism to get account ID from whatever is passed in dispatchers.
@@ -197,6 +253,108 @@ impl frame_system::Config for Runtime {
 }
 
 impl pallet_randomness_collective_flip::Config for Runtime {}
+
+// parameter_types! {
+// 	pub ContractDeposit: Balance = deposit(
+// 		1,
+// 		<pallet_contracts::Pallet<Runtime>>::contract_info_size(),
+// 	);
+// 	pub const MaxValueSize: u32 = 16 * 1024;
+// 	// The lazy deletion runs inside on_initialize.
+// 	pub DeletionWeightLimit: Weight = AVERAGE_ON_INITIALIZE_RATIO *
+// 		RuntimeBlockWeights::get().max_block;
+// 	// The weight needed for decoding the queue should be less or equal than a fifth
+// 	// of the overall weight dedicated to the lazy deletion.
+// 	pub DeletionQueueDepth: u32 = ((DeletionWeightLimit::get() / (
+// 			<Runtime as pallet_contracts::Config>::WeightInfo::on_initialize_per_queue_item(1) -
+// 			<Runtime as pallet_contracts::Config>::WeightInfo::on_initialize_per_queue_item(0)
+// 		)) / 5) as u32;
+// 	pub Schedule: pallet_contracts::Schedule<Runtime> = Default::default();
+// 	pub const DEPOSIT_PER_ITEM = 1;
+// }
+
+// impl pallet_contracts::Config for Runtime {
+// 	type Time = Timestamp;
+// 	type Randomness = RandomnessCollectiveFlip;
+// 	type Currency = Balances;
+// 	type Event = Event;
+// 	type Call = Call;
+// 	/// The safest default is to allow no calls at all.
+// 	///
+// 	/// Runtimes should whitelist dispatchables that are allowed to be called from contracts
+// 	/// and make sure they are stable. Dispatchables exposed to contracts are not allowed to
+// 	/// change because that would break already deployed contracts. The `Call` structure itself
+// 	/// is not allowed to change the indices of existing pallets, too.
+// 	type CallFilter = Nothing;
+// 	// type ContractDeposit = ContractDeposit;
+// 	type CallStack = [pallet_contracts::Frame<Self>; 31];
+// 	type WeightPrice = pallet_transaction_payment::Pallet<Self>;
+// 	type WeightInfo = pallet_contracts::weights::SubstrateWeight<Self>;
+// 	type ChainExtension = IrisExtension;
+// 	type DeletionQueueDepth = DeletionQueueDepth;
+// 	type DeletionWeightLimit = DeletionWeightLimit;
+// 	type Schedule = Schedule;
+// 	type DepositPerByte = ContractDeposit;
+// 	type DepositPerItem = DEPOSIT_PER_ITEM;
+// 	type AddressGenerator = ();
+// }
+
+parameter_types! {
+	// TODO: Increase this when done testing
+	pub const MinAuthorities: u32 = 1;
+	pub const MaxDeadSession: u32 = 3;
+}
+
+impl pallet_iris_session::Config for Runtime {
+	type Event = Event;
+	type Call = Call;
+	type AddRemoveOrigin = EnsureRoot<AccountId>;
+	type MinAuthorities = MinAuthorities;
+	type MaxDeadSession = MaxDeadSession;
+	type AuthorityId = pallet_iris_session::crypto::TestAuthId;
+}
+
+parameter_types! {
+	pub const Period: u32 = 1 * MINUTES;
+	pub const Offset: u32 = 0;
+}
+
+impl pallet_session::Config for Runtime {
+	type ValidatorId = <Self as frame_system::Config>::AccountId;
+	type ValidatorIdOf = pallet_iris_session::ValidatorOf<Self>;
+	type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
+	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
+	type SessionManager = IrisSession;
+	type SessionHandler = <opaque::SessionKeys as OpaqueKeys>::KeyTypeIdProviders;
+	type Keys = opaque::SessionKeys;
+	type WeightInfo = pallet_session::weights::SubstrateWeight<Runtime>;
+	// type DisabledValidatorsThreshold = ();
+	type Event = Event;
+}
+
+parameter_types! {
+	pub const ImOnlineUnsignedPriority: TransactionPriority = TransactionPriority::max_value();
+	pub const MaxKeys: u32 = 10_000;
+	pub const MaxPeerInHeartbeats: u32 = 10_000;
+	pub const MaxPeerDataEncodingSize: u32 = 1_000;
+}
+
+impl pallet_im_online::Config for Runtime {
+	type AuthorityId = ImOnlineId;
+	type Event = Event;
+	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
+	type ValidatorSet = IrisSession;
+	type ReportUnresponsiveness = IrisSession;
+	type UnsignedPriority = ImOnlineUnsignedPriority;
+	type WeightInfo = pallet_im_online::weights::SubstrateWeight<Runtime>;
+	type MaxKeys = MaxKeys;
+	type MaxPeerInHeartbeats = MaxPeerInHeartbeats;
+	type MaxPeerDataEncodingSize = MaxPeerDataEncodingSize;
+}
+
+parameter_types! {
+	pub const MaxAuthorities: u32 = 32;
+}
 
 impl pallet_aura::Config for Runtime {
 	type AuthorityId = AuraId;
@@ -250,6 +408,12 @@ impl pallet_balances::Config for Runtime {
 	type WeightInfo = pallet_balances::weights::SubstrateWeight<Runtime>;
 }
 
+
+
+parameter_types! {
+	pub const TransactionByteFee: Balance = 1;
+}
+
 impl pallet_transaction_payment::Config for Runtime {
 	type OnChargeTransaction = CurrencyAdapter<Balances, ()>;
 	type OperationalFeeMultiplier = ConstU8<5>;
@@ -258,14 +422,110 @@ impl pallet_transaction_payment::Config for Runtime {
 	type FeeMultiplierUpdate = ();
 }
 
+parameter_types! {
+	pub const AssetDeposit: Balance = 100 * DOLLARS;
+	// TODO: What is the proper amount for this?
+	pub const AssetAccountDeposit: Balance = 1 * DOLLARS;
+	pub const ApprovalDeposit: Balance = 1 * DOLLARS;
+	pub const StringLimit: u32 = 50;
+	pub const MetadataDepositBase: Balance = 10 * DOLLARS;
+	pub const MetadataDepositPerByte: Balance = 1 * DOLLARS;
+}
+
 impl pallet_sudo::Config for Runtime {
 	type Event = Event;
 	type Call = Call;
 }
 
-/// Configure the pallet-template in pallets/template.
-impl pallet_template::Config for Runtime {
+impl pallet_assets::Config for Runtime {
 	type Event = Event;
+	type Balance = u64;
+	type AssetId = u32;
+	type Currency = Balances;
+	type ForceOrigin = EnsureRoot<AccountId>;
+	type AssetDeposit = AssetDeposit;
+	type AssetAccountDeposit = AssetAccountDeposit;
+	type MetadataDepositBase = MetadataDepositBase;
+	type MetadataDepositPerByte = MetadataDepositPerByte;
+	type ApprovalDeposit = ApprovalDeposit;
+	type StringLimit = StringLimit;
+	type Freezer = ();
+	type Extra = ();
+	type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
+}
+
+/// Payload data to be signed when making signed transaction from off-chain workers,
+///   inside `create_transaction` function.
+pub type SignedPayload = generic::SignedPayload<Call, SignedExtra>;
+
+/// configure the iris assets pallet
+impl pallet_iris_assets::Config for Runtime {
+	type Event = Event;
+	type Call = Call;
+	type Currency = Balances;
+}
+
+impl pallet_iris_ledger::Config for Runtime {
+	type Event = Event;
+	type Call = Call;
+	// type Balance = u64;
+	type IrisCurrency = Balances;
+}
+
+impl<LocalCall> frame_system::offchain::CreateSignedTransaction<LocalCall> for Runtime
+where
+	Call: From<LocalCall>,
+{
+	fn create_transaction<C: frame_system::offchain::AppCrypto<Self::Public, Self::Signature>>(
+		call: Call,
+		public: <Signature as sp_runtime::traits::Verify>::Signer,
+		account: AccountId,
+		index: Index,
+	) -> Option<(
+		Call,
+		<UncheckedExtrinsic as sp_runtime::traits::Extrinsic>::SignaturePayload,
+	)> {
+		let period = BlockHashCount::get() as u64;
+		let current_block = System::block_number()
+			.saturated_into::<u64>()
+			.saturating_sub(1);
+		let tip = 0;
+		let extra: SignedExtra = (
+			frame_system::CheckNonZeroSender::<Runtime>::new(),
+			frame_system::CheckSpecVersion::<Runtime>::new(),
+			frame_system::CheckTxVersion::<Runtime>::new(),
+			frame_system::CheckGenesis::<Runtime>::new(),
+			frame_system::CheckEra::<Runtime>::from(generic::Era::mortal(period, current_block)),
+			frame_system::CheckNonce::<Runtime>::from(index),
+			frame_system::CheckWeight::<Runtime>::new(),
+			pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(tip),
+		);
+
+		#[cfg_attr(not(feature = "std"), allow(unused_variables))]
+		let raw_payload = SignedPayload::new(call, extra)
+			.map_err(|e| {
+				log::warn!("SignedPayload error: {:?}", e);
+			})
+			.ok()?;
+
+		let signature = raw_payload.using_encoded(|payload| C::sign(payload, public))?;
+		let address = account;
+		let (call, extra, _) = raw_payload.deconstruct();
+		Some((call, (sp_runtime::MultiAddress::Id(address), signature, extra)))
+	}
+}
+
+impl frame_system::offchain::SigningTypes for Runtime {
+	type Public = <Signature as sp_runtime::traits::Verify>::Signer;
+	type Signature = Signature;
+}
+
+impl<C> frame_system::offchain::SendTransactionTypes<C> for Runtime
+where
+	Call: From<C>,
+{
+	type OverarchingCall = Call;
+	type Extrinsic = UncheckedExtrinsic;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -275,16 +535,21 @@ construct_runtime!(
 		NodeBlock = opaque::Block,
 		UncheckedExtrinsic = UncheckedExtrinsic
 	{
-		System: frame_system,
-		RandomnessCollectiveFlip: pallet_randomness_collective_flip,
-		Timestamp: pallet_timestamp,
-		Aura: pallet_aura,
-		Grandpa: pallet_grandpa,
-		Balances: pallet_balances,
-		TransactionPayment: pallet_transaction_payment,
-		Sudo: pallet_sudo,
-		// Include the custom logic from the pallet-template in the runtime.
-		TemplateModule: pallet_template,
+		System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
+		Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
+		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
+		TransactionPayment: pallet_transaction_payment::{Pallet, Storage},
+		Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>},
+		IrisAssets: pallet_iris_assets::{Pallet, Call, Storage, Event<T>},
+		IrisSession: pallet_iris_session::{Pallet, Call, Storage, Event<T>, Config<T>, ValidateUnsigned},
+		IrisLedger: pallet_iris_ledger::{Pallet, Call, Storage, Event<T>},
+		Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>},
+		Assets: pallet_assets::{Pallet, Storage, Event<T>},
+		ImOnline: pallet_im_online::{Pallet, Call, Storage, Event<T>, ValidateUnsigned, Config<T>},
+		RandomnessCollectiveFlip: pallet_randomness_collective_flip::{Pallet, Storage},
+		// Contracts: pallet_contracts::{Pallet, Call, Storage, Event<T>},
+		Aura: pallet_aura::{Pallet, Config<T>},
+		Grandpa: pallet_grandpa::{Pallet, Call, Storage, Config, Event},
 	}
 );
 
@@ -308,7 +573,7 @@ pub type SignedExtra = (
 /// Unchecked extrinsic type as expected by this runtime.
 pub type UncheckedExtrinsic = generic::UncheckedExtrinsic<Address, Call, Signature, SignedExtra>;
 /// The payload being signed in transactions.
-pub type SignedPayload = generic::SignedPayload<Call, SignedExtra>;
+// pub type SignedPayload = generic::SignedPayload<Call, SignedExtra>;
 /// Executive: handles dispatch to the various modules.
 pub type Executive = frame_executive::Executive<
 	Runtime,
@@ -449,6 +714,43 @@ impl_runtime_apis! {
 		}
 	}
 
+	
+	// impl pallet_contracts_rpc_runtime_api::ContractsApi<
+	// 	Block, AccountId, Balance, BlockNumber, Hash,
+	// >
+	// 	for Runtime
+	// {
+	// 	fn call(
+	// 		origin: AccountId,
+	// 		dest: AccountId,
+	// 		value: Balance,
+	// 		gas_limit: u64,
+	// 		storage_deposit_limit: Option<Balance>,
+	// 		input_data: Vec<u8>,
+	// 	) -> pallet_contracts_primitives::ContractExecResult<Balance> {
+	// 		Contracts::bare_call(origin, dest, value, gas_limit, storage_deposit_limit, input_data, true)
+	// 	}
+
+	// 	fn instantiate(
+	// 		origin: AccountId,
+	// 		endowment: Balance,
+	// 		gas_limit: u64,
+	// 		code: pallet_contracts_primitives::Code<Hash>,
+	// 		data: Vec<u8>,
+	// 		salt: Vec<u8>,
+	// 	) -> pallet_contracts_primitives::ContractInstantiateResult<AccountId, Balance>
+	// 	{
+	// 		Contracts::bare_instantiate(origin, endowment, gas_limit, code, data, salt, true)
+	// 	}
+
+	// 	fn get_storage(
+	// 		address: AccountId,
+	// 		key: [u8; 32],
+	// 	) -> pallet_contracts_primitives::GetStorageResult {
+	// 		Contracts::get_storage(address, key)
+	// 	}
+	// }
+
 	impl pallet_transaction_payment_rpc_runtime_api::TransactionPaymentApi<Block, Balance> for Runtime {
 		fn query_info(
 			uxt: <Block as BlockT>::Extrinsic,
@@ -464,6 +766,17 @@ impl_runtime_apis! {
 		}
 	}
 
+	/*
+		the iris RPC runtime api
+	*/
+	impl pallet_iris_rpc_runtime_api::IrisApi<Block> for Runtime {
+		fn retrieve_bytes(
+		asset_id: u32,
+		) -> Bytes {
+			IrisAssets::retrieve_bytes(asset_id)
+		}
+	}
+
 	#[cfg(feature = "runtime-benchmarks")]
 	impl frame_benchmarking::Benchmark<Block> for Runtime {
 		fn benchmark_metadata(extra: bool) -> (
@@ -476,7 +789,13 @@ impl_runtime_apis! {
 			use baseline::Pallet as BaselineBench;
 
 			let mut list = Vec::<BenchmarkList>::new();
-			list_benchmarks!(list, extra);
+
+			list_benchmark!(list, extra, pallet_assets, Assets);
+			list_benchmark!(list, extra, frame_system, SystemBench::<Runtime>);
+			// list_benchmark!(list, extra, pallet_contracts, Contracts);
+			list_benchmark!(list, extra, pallet_balances, Balances);
+			list_benchmark!(list, extra, pallet_timestamp, Timestamp);
+			list_benchmark!(list, extra, pallet_iris, Iris);
 
 			let storage_info = AllPalletsWithSystem::storage_info();
 
@@ -511,6 +830,14 @@ impl_runtime_apis! {
 			let params = (&config, &whitelist);
 			add_benchmarks!(params, batches);
 
+			add_benchmark!(params, batches, pallet_assets, Assets);
+			add_benchmark!(params, batches, frame_system, SystemBench::<Runtime>);
+			// add_benchmark!(params, batches, pallet_contracts, Contracts);
+			add_benchmark!(params, batches, pallet_balances, Balances);
+			add_benchmark!(params, batches, pallet_timestamp, Timestamp);
+			add_benchmark!(params, batches, pallet_iris_assets, Iris);
+
+			if batches.is_empty() { return Err("Benchmark not found for this pallet.".into()) }
 			Ok(batches)
 		}
 	}
@@ -530,3 +857,111 @@ impl_runtime_apis! {
 		}
 	}
 }
+
+// /**
+//  * 
+//  * CHAIN EXTENSION
+//  * 
+//  * Here we expose functionality that can be used by smart contracts to hook into the iris runtime
+//  * 
+//  * in general, this exposes iris functionality that doesn't rely on the underlying IPFS network
+//  * 
+//  * We expose functionality to:
+//  * - transfer owned assets
+//  * - mint assets from an owned asset class
+//  * 
+//  */
+// use frame_support::log::{
+//     error,
+//     trace,
+// };
+// use pallet_contracts::chain_extension::{
+//     ChainExtension,
+//     Environment,
+//     Ext,
+//     InitState,
+//     RetVal,
+//     SysConfig,
+//     UncheckedFrom,
+// };
+// use sp_runtime::DispatchError;
+// use frame_system::{
+// 	self as system,
+// };
+
+// pub struct IrisExtension;
+
+// impl ChainExtension<Runtime> for IrisExtension {
+	
+//     fn call<E: Ext>(
+//         func_id: u32,
+//         env: Environment<E, InitState>,
+//     ) -> Result<RetVal, DispatchError>
+//     where
+//         <E::T as SysConfig>::AccountId:
+//             UncheckedFrom<<E::T as SysConfig>::Hash> + AsRef<[u8]>,
+//     {
+// 		trace!(
+// 			target: "runtime",
+// 			"[ChainExtension]|call|func_id:{:}",
+// 			func_id
+// 		);
+//         match func_id {	
+// 			// IrisAssets::transfer_asset
+//             0 => {
+//                 let mut env = env.buf_in_buf_out();
+// 				let (caller_account, target, asset_id, amount): (AccountId, AccountId, u32, u64) = env.read_as()?;
+// 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
+
+//                 crate::IrisAssets::transfer_asset(
+// 					origin, sp_runtime::MultiAddress::Id(target), asset_id, amount,
+// 				)?;
+// 				Ok(RetVal::Converging(func_id))
+//             },
+// 			// IrisAssets::mint
+// 			1 => {
+// 				let mut env = env.buf_in_buf_out();
+// 				let (caller_account, target, asset_id, amount): (AccountId, AccountId, u32, u64) = env.read_as()?;
+// 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
+
+//                 crate::IrisAssets::mint(
+// 					origin, sp_runtime::MultiAddress::Id(target), asset_id, amount,
+// 				)?;
+// 				Ok(RetVal::Converging(func_id))
+// 			},
+// 			// IrisLedger::lock_currrency
+// 			2 => {
+// 				let mut env = env.buf_in_buf_out();
+// 				let (caller_account, amount): (AccountId, u64) = env.read_as()?;
+// 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
+
+// 				crate::IrisLedger::lock_currency(
+// 					origin, amount.into(),
+// 				)?;
+// 				Ok(RetVal::Converging(func_id))
+// 			},
+// 			// IrisLedger::unlock_currency_and_transfer
+// 			3 => {
+// 				let mut env = env.buf_in_buf_out();
+// 				let (caller_account, target): (AccountId, AccountId) = env.read_as()?;
+// 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
+
+// 				crate::IrisLedger::unlock_currency_and_transfer(
+// 					origin, target,
+// 				)?;
+// 				Ok(RetVal::Converging(func_id))
+// 			},
+//             _ => {
+// 				// env.write(&random_slice, false, None).map_err(|_| {
+//                 //     DispatchError::Other("ChainExtension failed to call transfer_assets")
+//                 // })?;
+//                 error!("Called an unregistered `func_id`: {:}", func_id);
+//                 return Err(DispatchError::Other("Unimplemented func_id"))
+//             }
+//         }
+//     }
+
+//     fn enabled() -> bool {
+//         true
+//     }
+// }

@@ -298,14 +298,18 @@ pub struct TaskManager {
 	/// terminates and gracefully shutdown. Also ends the parent `future()` if a child's essential
 	/// task fails.
 	children: Vec<TaskManager>,
+	/// the executor for ipfs
+	pub ipfs_rt: Option<std::sync::Arc<parking_lot::Mutex<tokio::runtime::Runtime>>>,
 }
 
 impl TaskManager {
 	/// If a Prometheus registry is passed, it will be used to report statistics about the
 	/// service tasks.
+	// removed from params: executor: TaskExecutor,
 	pub fn new(
 		tokio_handle: Handle,
-		prometheus_registry: Option<&Registry>,
+		ipfs_rt: Option<tokio::runtime::Runtime>,
+		prometheus_registry: Option<&Registry>
 	) -> Result<Self, PrometheusError> {
 		let (signal, on_exit) = exit_future::signal();
 
@@ -313,6 +317,13 @@ impl TaskManager {
 		let (essential_failed_tx, essential_failed_rx) = tracing_unbounded("mpsc_essential_tasks");
 
 		let metrics = prometheus_registry.map(Metrics::register).transpose()?;
+
+		let ipfs_rt = if ipfs_rt.is_none() {
+			None
+		} else {
+			Some(std::sync::Arc::new(parking_lot::Mutex::new(ipfs_rt.unwrap())))
+		};
+		
 
 		Ok(Self {
 			on_exit,
@@ -323,6 +334,7 @@ impl TaskManager {
 			essential_failed_rx,
 			keep_alive: Box::new(()),
 			children: Vec::new(),
+			ipfs_rt,
 		})
 	}
 

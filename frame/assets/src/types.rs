@@ -32,7 +32,7 @@ pub(super) type AssetAccountOf<T, I> =
 #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
 pub struct AssetDetails<Balance, AccountId, DepositBalance> {
 	/// Can change `owner`, `issuer`, `freezer` and `admin` accounts.
-	pub(super) owner: AccountId,
+	pub owner: AccountId,
 	/// Can mint tokens.
 	pub(super) issuer: AccountId,
 	/// Can thaw tokens, force transfers and burn tokens from any account.
@@ -114,7 +114,7 @@ impl<Balance> ExistenceReason<Balance> {
 #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
 pub struct AssetAccount<Balance, DepositBalance, Extra> {
 	/// The balance.
-	pub(super) balance: Balance,
+	pub balance: Balance,
 	/// Whether the account is frozen.
 	pub(super) is_frozen: bool,
 	/// The reason for the existence of the account.

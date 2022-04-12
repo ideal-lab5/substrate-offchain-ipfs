@@ -243,9 +243,11 @@ where
 {
 	let keystore_container = KeystoreContainer::new(&config.keystore)?;
 
+	let ipfs_rt = tokio::runtime::Runtime::new().expect("couldn't start the IPFS runtime");
+
 	let task_manager = {
 		let registry = config.prometheus_config.as_ref().map(|cfg| &cfg.registry);
-		TaskManager::new(config.tokio_handle.clone(), registry)?
+		TaskManager::new(config.tokio_handle.clone(), Some(ipfs_rt), registry)?
 	};
 
 	let chain_spec = &config.chain_spec;
@@ -406,13 +408,14 @@ pub fn build_offchain_workers<TBl, TCl>(
 	spawn_handle: SpawnTaskHandle,
 	client: Arc<TCl>,
 	network: Arc<NetworkService<TBl, <TBl as BlockT>::Hash>>,
+	ipfs_rt: Arc<parking_lot::Mutex<tokio::runtime::Runtime>>,
 ) -> Option<Arc<sc_offchain::OffchainWorkers<TCl, TBl>>>
 where
 	TBl: BlockT,
 	TCl: Send + Sync + ProvideRuntimeApi<TBl> + BlockchainEvents<TBl> + 'static,
 	<TCl as ProvideRuntimeApi<TBl>>::Api: sc_offchain::OffchainWorkerApi<TBl>,
 {
-	let offchain_workers = Some(Arc::new(sc_offchain::OffchainWorkers::new(client.clone())));
+	let offchain_workers = Some(Arc::new(sc_offchain::OffchainWorkers::new(client.clone(), ipfs_rt)));
 
 	// Inform the offchain worker about new imported blocks
 	if let Some(offchain) = offchain_workers.clone() {

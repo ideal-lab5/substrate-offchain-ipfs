@@ -76,7 +76,7 @@ where
 	fn set_authorized_peers(&self, peers: HashSet<PeerId>) {
 		self.set_authorized_peers(peers)
 	}
-
+ 
 	fn set_authorized_only(&self, reserved_only: bool) {
 		self.set_authorized_only(reserved_only)
 	}
@@ -93,6 +93,7 @@ pub struct OffchainWorkerOptions {
 /// An offchain workers manager.
 pub struct OffchainWorkers<Client, Block: traits::Block> {
 	client: Arc<Client>,
+	ipfs_node: ipfs::Ipfs<ipfs::Types>,
 	_block: PhantomData<Block>,
 	thread_pool: Mutex<ThreadPool>,
 	shared_http_client: api::SharedClient,
@@ -101,14 +102,36 @@ pub struct OffchainWorkers<Client, Block: traits::Block> {
 
 impl<Client, Block: traits::Block> OffchainWorkers<Client, Block> {
 	/// Creates new [`OffchainWorkers`].
-	pub fn new(client: Arc<Client>) -> Self {
-		Self::new_with_options(client, OffchainWorkerOptions { enable_http_requests: true })
+	pub fn new(client: Arc<Client>, ipfs_rt: Arc<Mutex<tokio::runtime::Runtime>>) -> Self {
+		Self::new_with_options(client, ipfs_rt, OffchainWorkerOptions { enable_http_requests: true })
 	}
 
 	/// Creates new [`OffchainWorkers`] using the given `options`.
-	pub fn new_with_options(client: Arc<Client>, options: OffchainWorkerOptions) -> Self {
+	pub fn new_with_options(client: Arc<Client>, ipfs_rt: Arc<Mutex<tokio::runtime::Runtime>>, options: OffchainWorkerOptions) -> Self {
+
+		let (ipfs_node, node_info) = std::thread::spawn(move || {
+		    let ipfs_rt = ipfs_rt.lock();
+			// https://docs.rs/ipfs/0.2.1/ipfs/struct.IpfsOptions.html
+			let mut options = ipfs::IpfsOptions::inmemory_with_generated_keys();
+			options.listening_addrs = vec!["/ip4/0.0.0.0/tcp/35555".parse().unwrap()];
+			options.mdns = true;
+			ipfs_rt.block_on(async move {
+				// Start daemon and initialize repo
+				let (ipfs, fut) = ipfs::UninitializedIpfs::new(options).start().await.unwrap();
+				tokio::task::spawn(fut);
+				let node_info = ipfs.identity().await.unwrap();
+				(ipfs, node_info)
+			})
+		}).join().expect("couldn't start the IPFS async runtime");
+
+		log::info!(
+		    "IPFS: node started with PeerId {} and addresses {:?}",
+		    node_info.0.to_peer_id(), node_info.1
+		);
+
 		Self {
 			client,
+			ipfs_node,
 			_block: PhantomData,
 			thread_pool: Mutex::new(ThreadPool::with_name(
 				"offchain-worker".into(),
@@ -167,7 +190,7 @@ where
 		);
 		let process = (version > 0).then(|| {
 			let (api, runner) =
-				api::AsyncApi::new(network_provider, is_validator, self.shared_http_client.clone());
+				api::AsyncApi::new(network_provider, is_validator, self.shared_http_client.clone(), self.ipfs_node.clone());
 			tracing::debug!(target: LOG_TARGET, "Spawning offchain workers at {:?}", at);
 			let header = header.clone();
 			let client = self.client.clone();
@@ -329,8 +352,9 @@ mod tests {
 		let network = Arc::new(TestNetwork());
 		let header = client.header(&BlockId::number(0)).unwrap().unwrap();
 
+		let ipfs_rt = Arc::new(Mutex::new(tokio::runtime::Runtime::new().unwrap()));
 		// when
-		let offchain = OffchainWorkers::new(client);
+		let offchain: OffchainWorkers<_, _> = OffchainWorkers::new(client, ipfs_rt);
 		futures::executor::block_on(offchain.on_block_imported(&header, network, false));
 
 		// then
