@@ -40,7 +40,6 @@ RUN mv /usr/share/ca* /tmp && \
 
 COPY --from=builder /substrate/target/$PROFILE/substrate /usr/local/bin
 COPY --from=builder /substrate/target/$PROFILE/subkey /usr/local/bin
-# COPY --from=builder /substrate/target/$PROFILE/node-rpc-client /usr/local/bin
 COPY --from=builder /substrate/target/$PROFILE/node-template /usr/local/bin
 COPY --from=builder /substrate/target/$PROFILE/chain-spec-builder /usr/local/bin
 
@@ -50,16 +49,6 @@ RUN ldd /usr/local/bin/substrate && \
 # Shrinking
 RUN rm -rf /usr/lib/python* && \
 	rm -rf /usr/bin /usr/sbin /usr/share/man
-
-# RUN useradd -m -u 1000 -U -s /bin/sh -d /substrate substrate && \
-# 	mkdir -p /data /substrate/.local/share/substrate && \
-# 	chown -R substrate:substrate /data && \
-# 	ln -s /data /substrate/.local/share/substrate && \
-# # unclutter and minimize the attack surface
-# 	rm -rf /usr/bin /usr/sbin && \
-# # Sanity checks
-# 	ldd /usr/local/bin/substrate && \
-# 	/usr/local/bin/substrate --version
 
 USER substrate
 EXPOSE 30333 9933 9944 9615 35555
