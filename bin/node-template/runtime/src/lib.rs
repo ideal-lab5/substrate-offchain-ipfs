@@ -84,9 +84,27 @@ pub type Index = u32;
 /// A hash of some data used by the chain.
 pub type Hash = sp_core::H256;
 
+// Prints debug output of the `contracts` pallet to stdout if the node is
+// started with `-lruntime::contracts=debug`.
+const CONTRACTS_DEBUG_OUTPUT: bool = true;
+
+// Unit = the base number of indivisible units for balances
+const UNIT: Balance = 1_000_000_000_000;
+const MILLIUNIT: Balance = 1_000_000_000;
+const EXISTENTIAL_DEPOSIT: Balance = MILLIUNIT;
+
+const fn deposit(items: u32, bytes: u32) -> Balance {
+	(items as Balance * UNIT + (bytes as Balance) * (5 * MILLIUNIT / 100)) / 10
+}
+
+// TODO: needed?
 pub const MILLICENTS: Balance = 1_000_000_000;
 pub const CENTS: Balance = 1_000 * MILLICENTS; // assume this is worth about a cent.
 pub const DOLLARS: Balance = 100 * CENTS;
+
+// const fn deposit(items: u32, bytes: u32) -> Balance {
+// 	(items as Balance * UNIT + (bytes as Balance) * (5 * MILLIUNIT / 100)) / 10
+// }
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -114,10 +132,6 @@ pub mod opaque {
 }
 
 use node_primitives::Balance;
-
-pub const fn deposit(items: u32, bytes: u32) -> Balance {
-	items as Balance * 15 * CENTS + (bytes as Balance) * 6 * CENTS
-}
 
 // To learn more about runtime versioning and what each of the following value means:
 //   https://docs.substrate.io/v3/runtime/upgrades#runtime-versioning
@@ -255,15 +269,8 @@ impl frame_system::Config for Runtime {
 impl pallet_randomness_collective_flip::Config for Runtime {}
 
 parameter_types! {
-	// pub ContractDeposit: Balance = deposit(
-	// 	1,
-	// 	<pallet_contracts::Pallet<Runtime>>::contract_info_size(),
-	// );
-	pub ContractDeposit: Balance = deposit(
-		1,
-		1,
-	);
-	pub const MaxValueSize: u32 = 16 * 1024;
+	pub const DepositPerItem: Balance = deposit(1, 0);
+	pub const DepositPerByte: Balance = deposit(0, 1);
 	// The lazy deletion runs inside on_initialize.
 	pub DeletionWeightLimit: Weight = AVERAGE_ON_INITIALIZE_RATIO *
 		RuntimeBlockWeights::get().max_block;
@@ -273,8 +280,18 @@ parameter_types! {
 			<Runtime as pallet_contracts::Config>::WeightInfo::on_initialize_per_queue_item(1) -
 			<Runtime as pallet_contracts::Config>::WeightInfo::on_initialize_per_queue_item(0)
 		)) / 5) as u32;
-	pub Schedule: pallet_contracts::Schedule<Runtime> = Default::default();
-	pub const DepositPerItem: u32 = 1;
+	pub Schedule: pallet_contracts::Schedule<Runtime> = {
+		let mut schedule = pallet_contracts::Schedule::<Runtime>::default();
+		// We decided to **temporarily* increase the default allowed contract size here
+		// (the default is `128 * 1024`).
+		//
+		// Our reasoning is that a number of people ran into `CodeTooLarge` when trying
+		// to deploy their contracts. We are currently introducing a number of optimizations
+		// into ink! which should bring the contract sizes lower. In the meantime we don't
+		// want to pose additional friction on developers.
+		schedule.limits.code_len = 256 * 1024;
+		schedule
+	};
 }
 
 impl pallet_contracts::Config for Runtime {
@@ -289,18 +306,16 @@ impl pallet_contracts::Config for Runtime {
 	/// and make sure they are stable. Dispatchables exposed to contracts are not allowed to
 	/// change because that would break already deployed contracts. The `Call` structure itself
 	/// is not allowed to change the indices of existing pallets, too.
-	type CallFilter = Nothing;
-	// type ContractDeposit = ContractDeposit;
-	type CallStack = [pallet_contracts::Frame<Self>; 31];
+	type CallFilter = frame_support::traits::Nothing;
+	type DepositPerItem = DepositPerItem;
+	type DepositPerByte = DepositPerByte;
 	type WeightPrice = pallet_transaction_payment::Pallet<Self>;
 	type WeightInfo = pallet_contracts::weights::SubstrateWeight<Self>;
-	// type ChainExtension = IrisExtension;
 	type ChainExtension = ();
 	type DeletionQueueDepth = DeletionQueueDepth;
 	type DeletionWeightLimit = DeletionWeightLimit;
 	type Schedule = Schedule;
-	type DepositPerByte = ContractDeposit;
-	type DepositPerItem = DepositPerItem;
+	type CallStack = [pallet_contracts::Frame<Self>; 31];
 	type AddressGenerator = pallet_contracts::DefaultAddressGenerator;
 }
 
@@ -720,9 +735,7 @@ impl_runtime_apis! {
 	}
 
 	
-	impl pallet_contracts_rpc_runtime_api::ContractsApi<
-		Block, AccountId, Balance, BlockNumber, Hash,
-	>
+	impl pallet_contracts_rpc_runtime_api::ContractsApi<Block, AccountId, Balance, BlockNumber, Hash>
 		for Runtime
 	{
 		fn call(
@@ -733,12 +746,12 @@ impl_runtime_apis! {
 			storage_deposit_limit: Option<Balance>,
 			input_data: Vec<u8>,
 		) -> pallet_contracts_primitives::ContractExecResult<Balance> {
-			Contracts::bare_call(origin, dest, value, gas_limit, storage_deposit_limit, input_data, true)
+			Contracts::bare_call(origin, dest, value, gas_limit, storage_deposit_limit, input_data, CONTRACTS_DEBUG_OUTPUT)
 		}
 
 		fn instantiate(
 			origin: AccountId,
-			endowment: Balance,
+			value: Balance,
 			gas_limit: u64,
 			storage_deposit_limit: Option<Balance>,
 			code: pallet_contracts_primitives::Code<Hash>,
@@ -746,14 +759,15 @@ impl_runtime_apis! {
 			salt: Vec<u8>,
 		) -> pallet_contracts_primitives::ContractInstantiateResult<AccountId, Balance>
 		{
-			Contracts::bare_instantiate(origin, endowment, gas_limit, storage_deposit_limit, code, data, salt, true)
+			Contracts::bare_instantiate(origin, value, gas_limit, storage_deposit_limit, code, data, salt, CONTRACTS_DEBUG_OUTPUT)
 		}
 
 		fn upload_code(
 			origin: AccountId,
 			code: Vec<u8>,
 			storage_deposit_limit: Option<Balance>,
-		) -> pallet_contracts_primitives::CodeUploadResult<Hash, Balance> {
+		) -> pallet_contracts_primitives::CodeUploadResult<Hash, Balance>
+		{
 			Contracts::bare_upload_code(origin, code, storage_deposit_limit)
 		}
 
@@ -872,110 +886,110 @@ impl_runtime_apis! {
 	}
 }
 
-// /**
-//  * 
-//  * CHAIN EXTENSION
-//  * 
-//  * Here we expose functionality that can be used by smart contracts to hook into the iris runtime
-//  * 
-//  * in general, this exposes iris functionality that doesn't rely on the underlying IPFS network
-//  * 
-//  * We expose functionality to:
-//  * - transfer owned assets
-//  * - mint assets from an owned asset class
-//  * 
-//  */
-// use frame_support::log::{
-//     error,
-//     trace,
-// };
-// use pallet_contracts::chain_extension::{
-//     ChainExtension,
-//     Environment,
-//     Ext,
-//     InitState,
-//     RetVal,
-//     SysConfig,
-//     UncheckedFrom,
-// };
-// use sp_runtime::DispatchError;
-// use frame_system::{
-// 	self as system,
-// };
+/**
+ * 
+ * CHAIN EXTENSION
+ * 
+ * Here we expose functionality that can be used by smart contracts to hook into the iris runtime
+ * 
+ * in general, this exposes iris functionality that doesn't rely on the underlying IPFS network
+ * 
+ * We expose functionality to:
+ * - transfer owned assets
+ * - mint assets from an owned asset class
+ * 
+ */
+use frame_support::log::{
+    error,
+    trace,
+};
+use pallet_contracts::chain_extension::{
+    ChainExtension,
+    Environment,
+    Ext,
+    InitState,
+    RetVal,
+    SysConfig,
+    UncheckedFrom,
+};
+use sp_runtime::DispatchError;
+use frame_system::{
+	self as system,
+};
 
-// pub struct IrisExtension;
+pub struct IrisExtension;
 
-// impl ChainExtension<Runtime> for IrisExtension {
+impl ChainExtension<Runtime> for IrisExtension {
 	
-//     fn call<E: Ext>(
-//         func_id: u32,
-//         env: Environment<E, InitState>,
-//     ) -> Result<RetVal, DispatchError>
-//     where
-//         <E::T as SysConfig>::AccountId:
-//             UncheckedFrom<<E::T as SysConfig>::Hash> + AsRef<[u8]>,
-//     {
-// 		trace!(
-// 			target: "runtime",
-// 			"[ChainExtension]|call|func_id:{:}",
-// 			func_id
-// 		);
-//         match func_id {	
-// 			// IrisAssets::transfer_asset
-//             0 => {
-//                 let mut env = env.buf_in_buf_out();
-// 				let (caller_account, target, asset_id, amount): (AccountId, AccountId, u32, u64) = env.read_as()?;
-// 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
+    fn call<E: Ext>(
+        func_id: u32,
+        env: Environment<E, InitState>,
+    ) -> Result<RetVal, DispatchError>
+    where
+        <E::T as SysConfig>::AccountId:
+            UncheckedFrom<<E::T as SysConfig>::Hash> + AsRef<[u8]>,
+    {
+		trace!(
+			target: "runtime",
+			"[ChainExtension]|call|func_id:{:}",
+			func_id
+		);
+        match func_id {	
+			// IrisAssets::transfer_asset
+            0 => {
+                let mut env = env.buf_in_buf_out();
+				let (caller_account, target, asset_id, amount): (AccountId, AccountId, u32, u64) = env.read_as()?;
+				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
 
-//                 crate::IrisAssets::transfer_asset(
-// 					origin, sp_runtime::MultiAddress::Id(target), asset_id, amount,
-// 				)?;
-// 				Ok(RetVal::Converging(func_id))
-//             },
-// 			// IrisAssets::mint
-// 			1 => {
-// 				let mut env = env.buf_in_buf_out();
-// 				let (caller_account, target, asset_id, amount): (AccountId, AccountId, u32, u64) = env.read_as()?;
-// 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
+                crate::IrisAssets::transfer_asset(
+					origin, sp_runtime::MultiAddress::Id(target), asset_id, amount,
+				)?;
+				Ok(RetVal::Converging(func_id))
+            },
+			// IrisAssets::mint
+			1 => {
+				let mut env = env.buf_in_buf_out();
+				let (caller_account, target, asset_id, amount): (AccountId, AccountId, u32, u64) = env.read_as()?;
+				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
 
-//                 crate::IrisAssets::mint(
-// 					origin, sp_runtime::MultiAddress::Id(target), asset_id, amount,
-// 				)?;
-// 				Ok(RetVal::Converging(func_id))
-// 			},
-// 			// IrisLedger::lock_currrency
-// 			2 => {
-// 				let mut env = env.buf_in_buf_out();
-// 				let (caller_account, amount): (AccountId, u64) = env.read_as()?;
-// 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
+                crate::IrisAssets::mint(
+					origin, sp_runtime::MultiAddress::Id(target), asset_id, amount,
+				)?;
+				Ok(RetVal::Converging(func_id))
+			},
+			// IrisLedger::lock_currrency
+			2 => {
+				let mut env = env.buf_in_buf_out();
+				let (caller_account, amount): (AccountId, u64) = env.read_as()?;
+				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
 
-// 				crate::IrisLedger::lock_currency(
-// 					origin, amount.into(),
-// 				)?;
-// 				Ok(RetVal::Converging(func_id))
-// 			},
-// 			// IrisLedger::unlock_currency_and_transfer
-// 			3 => {
-// 				let mut env = env.buf_in_buf_out();
-// 				let (caller_account, target): (AccountId, AccountId) = env.read_as()?;
-// 				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
+				crate::IrisLedger::lock_currency(
+					origin, amount.into(),
+				)?;
+				Ok(RetVal::Converging(func_id))
+			},
+			// IrisLedger::unlock_currency_and_transfer
+			3 => {
+				let mut env = env.buf_in_buf_out();
+				let (caller_account, target): (AccountId, AccountId) = env.read_as()?;
+				let origin: Origin = system::RawOrigin::Signed(caller_account).into();
 
-// 				crate::IrisLedger::unlock_currency_and_transfer(
-// 					origin, target,
-// 				)?;
-// 				Ok(RetVal::Converging(func_id))
-// 			},
-//             _ => {
-// 				// env.write(&random_slice, false, None).map_err(|_| {
-//                 //     DispatchError::Other("ChainExtension failed to call transfer_assets")
-//                 // })?;
-//                 error!("Called an unregistered `func_id`: {:}", func_id);
-//                 return Err(DispatchError::Other("Unimplemented func_id"))
-//             }
-//         }
-//     }
+				crate::IrisLedger::unlock_currency_and_transfer(
+					origin, target,
+				)?;
+				Ok(RetVal::Converging(func_id))
+			},
+            _ => {
+				// env.write(&random_slice, false, None).map_err(|_| {
+                //     DispatchError::Other("ChainExtension failed to call transfer_assets")
+                // })?;
+                error!("Called an unregistered `func_id`: {:}", func_id);
+                return Err(DispatchError::Other("Unimplemented func_id"))
+            }
+        }
+    }
 
-//     fn enabled() -> bool {
-//         true
-//     }
-// }
+    fn enabled() -> bool {
+        true
+    }
+}

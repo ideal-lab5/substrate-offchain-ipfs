@@ -69,7 +69,7 @@ log = { version = "0.4.14", default-features = false }
 substrate-wasm-builder = { version = "5.0.0-dev", path = "../../../utils/wasm-builder" }
 
 [features]
-default = ["std"]
+default = ["std", "contracts-unstable-interface"]
 std = [
 	"codec/std",
 	"scale-info/std",
