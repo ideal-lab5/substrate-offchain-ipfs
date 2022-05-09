@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2021-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -18,7 +18,9 @@
 
 //! BEEFY Prometheus metrics definition
 
-use prometheus::{register, Counter, Gauge, PrometheusError, Registry, U64};
+#[cfg(not(test))]
+use prometheus::{register, PrometheusError, Registry};
+use prometheus::{Counter, Gauge, U64};
 
 /// BEEFY metrics exposed through Prometheus
 pub(crate) struct Metrics {
@@ -37,31 +39,38 @@ pub(crate) struct Metrics {
 }
 
 impl Metrics {
+	#[cfg(not(test))]
 	pub(crate) fn register(registry: &Registry) -> Result<Self, PrometheusError> {
 		Ok(Self {
 			beefy_validator_set_id: register(
-				Gauge::new("beefy_validator_set_id", "Current BEEFY active validator set id.")?,
+				Gauge::new(
+					"substrate_beefy_validator_set_id",
+					"Current BEEFY active validator set id.",
+				)?,
 				registry,
 			)?,
 			beefy_votes_sent: register(
-				Counter::new("beefy_votes_sent", "Number of votes sent by this node")?,
+				Counter::new("substrate_beefy_votes_sent", "Number of votes sent by this node")?,
 				registry,
 			)?,
 			beefy_round_concluded: register(
-				Gauge::new("beefy_round_concluded", "Voting round, that has been concluded")?,
+				Gauge::new(
+					"substrate_beefy_round_concluded",
+					"Voting round, that has been concluded",
+				)?,
 				registry,
 			)?,
 			beefy_best_block: register(
-				Gauge::new("beefy_best_block", "Best block finalized by BEEFY")?,
+				Gauge::new("substrate_beefy_best_block", "Best block finalized by BEEFY")?,
 				registry,
 			)?,
 			beefy_should_vote_on: register(
-				Gauge::new("beefy_should_vote_on", "Next block, BEEFY should vote on")?,
+				Gauge::new("substrate_beefy_should_vote_on", "Next block, BEEFY should vote on")?,
 				registry,
 			)?,
 			beefy_skipped_sessions: register(
 				Counter::new(
-					"beefy_skipped_sessions",
+					"substrate_beefy_skipped_sessions",
 					"Number of sessions without a signed commitment",
 				)?,
 				registry,
@@ -89,5 +98,13 @@ macro_rules! metric_inc {
 		if let Some(metrics) = $self.metrics.as_ref() {
 			metrics.$m.inc();
 		}
+	}};
+}
+
+#[cfg(test)]
+#[macro_export]
+macro_rules! metric_get {
+	($self:ident, $m:ident) => {{
+		$self.metrics.as_ref().map(|metrics| metrics.$m.clone())
 	}};
 }

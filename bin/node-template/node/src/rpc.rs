@@ -50,8 +50,10 @@ where
 
 	io.extend_with(TransactionPaymentApi::to_delegate(TransactionPayment::new(client.clone())));
 
+	// IRIS rpc
 	io.extend_with(IrisApi::to_delegate(Iris::new(client.clone())));
 	
+	// Contracts RPC
 	io.extend_with(ContractsApi::to_delegate(Contracts::new(client.clone())));
 
 	io

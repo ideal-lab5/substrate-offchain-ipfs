@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2017-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +20,7 @@
 
 pub use crate::{
 	codec::{Codec, Decode, Encode, EncodeAsRef, EncodeLike, HasCompact, Input, Output},
+	scale_info::TypeInfo,
 	sp_std::{
 		fmt, marker,
 		prelude::{Clone, Eq, PartialEq, Vec},
@@ -33,7 +34,7 @@ pub use crate::{
 		TransactionPriority, WeighData, Weight, WithPostDispatchInfo,
 	},
 };
-pub use sp_runtime::{traits::Dispatchable, DispatchError};
+pub use sp_runtime::{traits::Dispatchable, DispatchError, RuntimeDebug};
 
 /// The return type of a `Dispatchable` in frame. When returned explicitly from
 /// a dispatchable function it allows overriding the default `PostDispatchInfo`
@@ -59,6 +60,28 @@ pub trait Callable<T> {
 // dirty hack to work around serde_derive issue
 // https://github.com/rust-lang/rust/issues/51331
 pub type CallableCallFor<A, R> = <A as Callable<R>>::Call;
+
+/// Origin for the System pallet.
+#[derive(PartialEq, Eq, Clone, RuntimeDebug, Encode, Decode, TypeInfo)]
+pub enum RawOrigin<AccountId> {
+	/// The system itself ordained this dispatch to happen: this is the highest privilege level.
+	Root,
+	/// It is signed by some public key and we provide the `AccountId`.
+	Signed(AccountId),
+	/// It is signed by nobody, can be either:
+	/// * included and agreed upon by the validators anyway,
+	/// * or unsigned transaction validated by a pallet.
+	None,
+}
+
+impl<AccountId> From<Option<AccountId>> for RawOrigin<AccountId> {
+	fn from(s: Option<AccountId>) -> RawOrigin<AccountId> {
+		match s {
+			Some(who) => RawOrigin::Signed(who),
+			None => RawOrigin::None,
+		}
+	}
+}
 
 /// A type that can be used as a parameter in a dispatchable function.
 ///
@@ -280,7 +303,7 @@ impl<T> Parameter for T where T: Codec + EncodeLike + Clone + Eq + fmt::Debug + 
 ///
 /// The following are reserved function signatures:
 ///
-/// * `deposit_event`: Helper function for depositing an [event](https://docs.substrate.dev/docs/event-enum).
+/// * `deposit_event`: Helper function for depositing an [event](https://docs.substrate.io/v3/runtime/events-and-errors).
 /// The default behavior is to call `deposit_event` from the [System
 /// module](../frame_system/index.html). However, you can write your own implementation for events
 /// in your runtime. To use the default behavior, add `fn deposit_event() = default;` to your
@@ -1546,7 +1569,7 @@ macro_rules! decl_module {
 					<Self as $crate::traits::GetStorageVersion>::current_storage_version(),
 				);
 
-				(|| { $( $impl )* })()
+				{ $( $impl )* }
 			}
 
 			#[cfg(feature = "try-runtime")]
@@ -1980,6 +2003,10 @@ macro_rules! decl_module {
 		pub type Pallet<$trait_instance $(, $instance $( = $module_default_instance)?)?>
 			= $mod_type<$trait_instance $(, $instance)?>;
 
+		$crate::__create_tt_macro! {
+			tt_error_token,
+		}
+
 		$crate::decl_module! {
 			@impl_on_initialize
 			{ $system }
@@ -2162,6 +2189,22 @@ macro_rules! decl_module {
 
 			fn crate_version() -> $crate::traits::CrateVersion {
 				$crate::crate_to_crate_version!()
+			}
+		}
+
+		impl<$trait_instance: $trait_name $(<I>, $instance: $instantiable)?> $crate::traits::PalletsInfoAccess
+			for $mod_type<$trait_instance $(, $instance)?> where $( $other_where_bounds )*
+		{
+			fn count() -> usize { 1 }
+			fn accumulate(acc: &mut $crate::sp_std::vec::Vec<$crate::traits::PalletInfoData>) {
+				use $crate::traits::PalletInfoAccess;
+				let item = $crate::traits::PalletInfoData {
+					index: Self::index(),
+					name: Self::name(),
+					module_name: Self::module_name(),
+					crate_version: Self::crate_version(),
+				};
+				acc.push(item);
 			}
 		}
 
@@ -2566,21 +2609,7 @@ mod tests {
 			type DbWeight: Get<RuntimeDbWeight>;
 		}
 
-		#[derive(Clone, PartialEq, Eq, Debug, Encode, Decode, scale_info::TypeInfo)]
-		pub enum RawOrigin<AccountId> {
-			Root,
-			Signed(AccountId),
-			None,
-		}
-
-		impl<AccountId> From<Option<AccountId>> for RawOrigin<AccountId> {
-			fn from(s: Option<AccountId>) -> RawOrigin<AccountId> {
-				match s {
-					Some(who) => RawOrigin::Signed(who),
-					None => RawOrigin::None,
-				}
-			}
-		}
+		pub use super::super::RawOrigin;
 
 		pub type Origin<T> = RawOrigin<<T as Config>::AccountId>;
 	}
@@ -2622,7 +2651,7 @@ mod tests {
 		}
 	}
 
-	#[derive(scale_info::TypeInfo)]
+	#[derive(Eq, PartialEq, Clone, crate::RuntimeDebug, scale_info::TypeInfo)]
 	pub struct TraitImpl {}
 	impl Config for TraitImpl {}
 
@@ -2663,7 +2692,14 @@ mod tests {
 		}
 	}
 
+	#[derive(TypeInfo, crate::RuntimeDebug, Eq, PartialEq, Clone, Encode, Decode)]
 	pub struct OuterOrigin;
+
+	impl From<RawOrigin<<TraitImpl as system::Config>::AccountId>> for OuterOrigin {
+		fn from(_: RawOrigin<<TraitImpl as system::Config>::AccountId>) -> Self {
+			unimplemented!("Not required in tests!")
+		}
+	}
 
 	impl crate::traits::OriginTrait for OuterOrigin {
 		type Call = <TraitImpl as system::Config>::Call;

@@ -72,16 +72,23 @@ use sp_runtime::{
 use pallet_iris_assets::{
 	DataCommand,
 };
+use sp_std::convert::TryFrom;
+use sp_std::convert::TryInto;
 
 pub const LOG_TARGET: &'static str = "runtime::iris-session";
 // TODO: should a new KeyTypeId be defined? e.g. b"iris"
 pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"aura");
 
 pub mod crypto {
-	use crate::KEY_TYPE;
+	// use crate::KEY_TYPE;
+	use sp_core::crypto::KeyTypeId;
 	use sp_core::sr25519::Signature as Sr25519Signature;
 	use sp_runtime::app_crypto::{app_crypto, sr25519};
 	use sp_runtime::{traits::Verify, MultiSignature, MultiSigner};
+	use sp_std::convert::TryInto;
+	use sp_std::convert::TryFrom;
+
+	pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"aura");
 
 	app_crypto!(sr25519, KEY_TYPE);
 
@@ -139,6 +146,7 @@ pub mod pallet {
 			CreateSignedTransaction,
 		}
 	};
+	use frame_support::pallet_prelude::*;
 
 	/// Configure the pallet by specifying the parameters and types on which it
 	/// depends.
@@ -166,6 +174,7 @@ pub mod pallet {
 
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
+	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
     /// map the ipfs public key to a list of multiaddresses
@@ -229,7 +238,7 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn eras_reward_points)]
 	pub type ErasRewardPoints<T: Config> = StorageDoubleMap<
-		_, Blake2_128Concat, EraIndex, Blake2_128Concat, T::AssetId, EraRewardPoints<T::AccountId>, ValueQuery,
+		_, Twox64Concat, EraIndex, Twox64Concat, T::AssetId, EraRewardPoints<T::AccountId>,
 	>;
 
 	///
@@ -487,16 +496,17 @@ pub mod pallet {
 			)?;
 			// award point to all validators
 			if let Some(active_era) = ActiveEra::<T>::get() {
-				<ErasRewardPoints<T>>::mutate(active_era.clone(), id, |era_rewards| {
-					// reward all validators
-					for v in <Validators::<T>>::get() {
-						SessionParticipation::<T>::mutate(active_era.clone(), |participants| {
-							participants.push(v.clone());
-						});
-						*era_rewards.individual.entry(v.clone()).or_default() += 1;
-						era_rewards.total += 1;
-					}
-				});
+				// WIP: TODO
+				// <ErasRewardPoints<T>>::mutate(active_era.clone(), id, |era_rewards| {
+				// 	// reward all validators
+				// 	for v in <Validators::<T>>::get() {
+				// 		SessionParticipation::<T>::mutate(active_era.clone(), |participants| {
+				// 			participants.push(v.clone());
+				// 		});
+				// 		*era_rewards.unwrap().individual.entry(v.clone()).or_default() += 1;
+				// 		era_rewards.unwrap().total += 1;
+				// 	}
+				// });
 			} else {
 				// error
 			}
@@ -550,10 +560,11 @@ pub mod pallet {
 				SessionParticipation::<T>::mutate(active_era.clone(), |p| {
 					p.push(pinner.clone());
 				});
-				<ErasRewardPoints<T>>::mutate(active_era, asset_id, |era_rewards| {
-					*era_rewards.individual.entry(pinner.clone()).or_default() += 1;
-					era_rewards.total += 1;
-				});
+				// WIP: TODO
+				// <ErasRewardPoints<T>>::mutate(active_era, asset_id, |era_rewards| {
+				// 	*era_rewards.unwrap().individual.entry(pinner.clone()).or_default() += 1;
+				// 	era_rewards.unwrap().total += 1;
+				// });
 			}
 			Ok(())
 		}
@@ -570,18 +581,19 @@ pub mod pallet {
 			asset_id: T::AssetId,
         ) -> DispatchResult {
             // ensure_signed(origin)?;
-			if let Some(active_era) = ActiveEra::<T>::get() {
-				<ErasRewardPoints<T>>::mutate(active_era.clone(), asset_id.clone(), |era_rewards| {
-					// reward all active storage providers
-					for k in StorageProviders::<T>::get(asset_id.clone()).into_iter() {
-						SessionParticipation::<T>::mutate(active_era.clone(), |p| {
-							p.push(k.clone());
-						});
-						*era_rewards.individual.entry(k.clone()).or_default() += 1;
-						era_rewards.total += 1;
-					}
-				});
-			}
+			// WIP: TODO
+			// if let Some(active_era) = ActiveEra::<T>::get() {
+			// 	<ErasRewardPoints<T>>::mutate(active_era.clone(), asset_id.clone(), |era_rewards| {
+			// 		// reward all active storage providers
+			// 		for k in StorageProviders::<T>::get(asset_id.clone()).into_iter() {
+			// 			SessionParticipation::<T>::mutate(active_era.clone(), |p| {
+			// 				p.push(k.clone());
+			// 			});
+			// 			*era_rewards.unwrap().individual.entry(k.clone()).or_default() += 1;
+			// 			era_rewards.unwrap().total += 1;
+			// 		}
+			// 	});
+			// }
             Ok(())
         }
 	}

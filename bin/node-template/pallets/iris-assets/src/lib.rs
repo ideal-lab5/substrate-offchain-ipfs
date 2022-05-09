@@ -36,7 +36,7 @@ use sp_runtime::{
     traits::{StaticLookup, Verify, IdentifyAccount},
 };
 use sp_std::{
-    vec::Vec,
+    // vec::Vec,
     prelude::*,
 };
 use scale_info::prelude::string::String;
@@ -73,7 +73,11 @@ pub mod pallet {
         pallet_prelude::*,
     };
 	use sp_core::offchain::OpaqueMultiaddr;
-	use sp_std::{str, vec::Vec};
+	use sp_std::{
+        str,
+        prelude::*,
+        // vec::Vec
+    };
 
 	#[pallet::config]
     /// the module configuration trait
@@ -88,6 +92,7 @@ pub mod pallet {
 
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
+    #[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
     /// A queue of data to publish or obtain on IPFS.
@@ -348,7 +353,7 @@ pub mod pallet {
             // verify asset access
             // in the future this is where the composable access rules will be executed
             // for now we just check if they account has a positive balance of assets
-            let true_asset_balance = <pallet_assets::Pallet<T>>::account(asset_id.clone(), who.clone()).balance;
+            let true_asset_balance = <pallet_assets::Pallet<T>>::account(asset_id.clone(), who.clone()).unwrap().balance;
             let zero_balance: T::Balance = 0u32.into();
             ensure!(true_asset_balance != zero_balance, Error::<T>::InsufficientBalance);
             // submit command to dataqueue

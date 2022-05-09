@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -16,10 +16,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{collections::HashSet, convert::TryFrom, str::FromStr, sync::Arc, thread::sleep};
+use std::{collections::HashSet, str::FromStr, sync::Arc, thread::sleep};
 
 use crate::NetworkProvider;
 use codec::{Decode, Encode};
+use futures::Future;
 pub use http::SharedClient;
 use sc_network::{Multiaddr, PeerId};
 use sp_core::{
@@ -44,10 +45,11 @@ mod http_dummy;
 mod timestamp;
 
 fn unavailable_yet<R: Default>(name: &str) -> R {
-	log::error!(
-		target: "sc_offchain",
+	tracing::error!(
+		target: super::LOG_TARGET,
 		"The {:?} API is not available for offchain workers yet. Follow \
-		https://github.com/paritytech/substrate/issues/1458 for details", name
+		https://github.com/paritytech/substrate/issues/1458 for details",
+		name
 	);
 	Default::default()
 }
@@ -82,9 +84,12 @@ impl<Storage: OffchainStorage> Db<Storage> {
 
 impl<Storage: OffchainStorage> offchain::DbExternalities for Db<Storage> {
 	fn local_storage_set(&mut self, kind: StorageKind, key: &[u8], value: &[u8]) {
-		log::debug!(
-			target: "sc_offchain",
-			"{:?}: Write: {:?} <= {:?}", kind, hex::encode(key), hex::encode(value)
+		tracing::debug!(
+			target: "offchain-worker::storage",
+			?kind,
+			key = ?hex::encode(key),
+			value = ?hex::encode(value),
+			"Write",
 		);
 		match kind {
 			StorageKind::PERSISTENT => self.persistent.set(STORAGE_PREFIX, key, value),
@@ -93,9 +98,11 @@ impl<Storage: OffchainStorage> offchain::DbExternalities for Db<Storage> {
 	}
 
 	fn local_storage_clear(&mut self, kind: StorageKind, key: &[u8]) {
-		log::debug!(
-			target: "sc_offchain",
-			"{:?}: Clear: {:?}", kind, hex::encode(key)
+		tracing::debug!(
+			target: "offchain-worker::storage",
+			?kind,
+			key = ?hex::encode(key),
+			"Clear",
 		);
 		match kind {
 			StorageKind::PERSISTENT => self.persistent.remove(STORAGE_PREFIX, key),
@@ -110,13 +117,13 @@ impl<Storage: OffchainStorage> offchain::DbExternalities for Db<Storage> {
 		old_value: Option<&[u8]>,
 		new_value: &[u8],
 	) -> bool {
-		log::debug!(
-			target: "sc_offchain",
-			"{:?}: CAS: {:?} <= {:?} vs {:?}",
-			kind,
-			hex::encode(key),
-			hex::encode(new_value),
-			old_value.as_ref().map(hex::encode),
+		tracing::debug!(
+			target: "offchain-worker::storage",
+			?kind,
+			key = ?hex::encode(key),
+			new_value = ?hex::encode(new_value),
+			old_value = ?old_value.as_ref().map(hex::encode),
+			"CAS",
 		);
 		match kind {
 			StorageKind::PERSISTENT =>
@@ -130,12 +137,12 @@ impl<Storage: OffchainStorage> offchain::DbExternalities for Db<Storage> {
 			StorageKind::PERSISTENT => self.persistent.get(STORAGE_PREFIX, key),
 			StorageKind::LOCAL => unavailable_yet(LOCAL_DB),
 		};
-		log::debug!(
-			target: "sc_offchain",
-			"{:?}: Read: {:?} => {:?}",
-			kind,
-			hex::encode(key),
-			result.as_ref().map(hex::encode)
+		tracing::debug!(
+			target: "offchain-worker::storage",
+			?kind,
+			key = ?hex::encode(key),
+			result = ?result.as_ref().map(hex::encode),
+			"Read",
 		);
 		result
 	}
@@ -320,10 +327,10 @@ impl <I: ::ipfs::IpfsTypes> AsyncApi<I> {
 	pub fn new(
 		network_provider: Arc<dyn NetworkProvider + Send + Sync>,
 		is_validator: bool,
-		shared_client: SharedClient,
+		shared_http_client: SharedClient,
 		ipfs_node: ::ipfs::Ipfs<I>
 	) -> (Api, Self) {
-		let (http_api, http_worker) = http::http(shared_client);
+		let (http_api, http_worker) = http::http(shared_http_client);
 
 		let (ipfs_api, ipfs_worker) = ipfs::ipfs(ipfs_node);
 
@@ -335,7 +342,10 @@ impl <I: ::ipfs::IpfsTypes> AsyncApi<I> {
 	}
 
 	/// Run a processing task for the API
+	// pub async fn process(self) -> impl Future<Output = ()> {
 	pub async fn process(mut self) {
+		// let http self.http.expect("`process` is only called once; qed")
+	// pub async fn process(mut self) {
 		let http = self.http.take().expect("Take invoked only once.");
 		let ipfs = self.ipfs.take().expect("Take invoked only once.");
 		futures::join!(http, ipfs);
@@ -354,7 +364,7 @@ mod tests {
 	};
 	// use ipfs::TestTypes;
 
-	struct TestNetwork();
+	pub(super) struct TestNetwork();
 
 	impl NetworkProvider for TestNetwork {
 		fn set_authorized_peers(&self, _peers: HashSet<PeerId>) {

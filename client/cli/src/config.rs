@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2020-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2020-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -31,7 +31,7 @@ use sc_service::{
 		NodeKeyConfig, OffchainWorkerConfig, PrometheusConfig, PruningMode, Role, RpcMethods,
 		TelemetryEndpoints, TransactionPoolOptions, WasmExecutionMethod,
 	},
-	ChainSpec, KeepBlocks, TracingReceiver, TransactionStorageMode,
+	ChainSpec, KeepBlocks, TracingReceiver,
 };
 use sc_tracing::logging::LoggerBuilder;
 use std::{net::SocketAddr, path::PathBuf};
@@ -198,14 +198,6 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 		Ok(self.database_params().map(|x| x.database_cache_size()).unwrap_or_default())
 	}
 
-	/// Get the database transaction storage scheme.
-	fn database_transaction_storage(&self) -> Result<TransactionStorageMode> {
-		Ok(self
-			.database_params()
-			.map(|x| x.transaction_storage())
-			.unwrap_or(TransactionStorageMode::BlockBody))
-	}
-
 	/// Get the database backend variant.
 	///
 	/// By default this is retrieved from `DatabaseParams` if it is available. Otherwise its `None`.
@@ -229,7 +221,14 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 		let paritydb_path = base_path.join("paritydb").join(role_dir);
 		Ok(match database {
 			Database::RocksDb => DatabaseSource::RocksDb { path: rocksdb_path, cache_size },
-			Database::ParityDb => DatabaseSource::ParityDb { path: rocksdb_path },
+			Database::ParityDb => DatabaseSource::ParityDb { path: paritydb_path },
+			Database::ParityDbDeprecated => {
+				eprintln!(
+					"WARNING: \"paritydb-experimental\" database setting is deprecated and will be removed in future releases. \
+				Please update your setup to use the new value: \"paritydb\"."
+				);
+				DatabaseSource::ParityDb { path: paritydb_path }
+			},
 			Database::Auto => DatabaseSource::Auto { paritydb_path, rocksdb_path, cache_size },
 		})
 	}
@@ -360,10 +359,19 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 		Ok(None)
 	}
 
+	/// Get maximum WS output buffer capacity.
+	fn ws_max_out_buffer_capacity(&self) -> Result<Option<usize>> {
+		Ok(None)
+	}
+
 	/// Get the prometheus configuration (`None` if disabled)
 	///
 	/// By default this is `None`.
-	fn prometheus_config(&self, _default_listen_port: u16) -> Result<Option<PrometheusConfig>> {
+	fn prometheus_config(
+		&self,
+		_default_listen_port: u16,
+		_chain_spec: &Box<dyn ChainSpec>,
+	) -> Result<Option<PrometheusConfig>> {
 		Ok(None)
 	}
 
@@ -447,6 +455,13 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 		Ok(Default::default())
 	}
 
+	/// Get maximum different runtimes in cache
+	///
+	/// By default this is `2`.
+	fn runtime_cache_size(&self) -> Result<u8> {
+		Ok(2)
+	}
+
 	/// Activate or not the automatic announcing of blocks after import
 	///
 	/// By default this is `false`.
@@ -469,7 +484,7 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 		let config_dir = base_path.config_dir(chain_spec.id());
 		let net_config_dir = config_dir.join(DEFAULT_NETWORK_CONFIG_PATH);
 		let client_id = C::client_id();
-		let database_cache_size = self.database_cache_size()?.unwrap_or(128);
+		let database_cache_size = self.database_cache_size()?.unwrap_or(1024);
 		let database = self.database()?.unwrap_or(Database::RocksDb);
 		let node_key = self.node_key(&net_config_dir)?;
 		let role = self.role(is_dev)?;
@@ -477,6 +492,7 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 		let is_validator = role.is_authority();
 		let (keystore_remote, keystore) = self.keystore_config(&config_dir)?;
 		let telemetry_endpoints = self.telemetry_endpoints(&chain_spec)?;
+		let runtime_cache_size = self.runtime_cache_size()?;
 
 		let unsafe_pruning = self.import_params().map(|p| p.unsafe_pruning).unwrap_or(false);
 
@@ -502,7 +518,6 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 			state_cache_child_ratio: self.state_cache_child_ratio()?,
 			state_pruning: self.state_pruning(unsafe_pruning, &role)?,
 			keep_blocks: self.keep_blocks()?,
-			transaction_storage: self.database_transaction_storage()?,
 			wasm_method: self.wasm_method()?,
 			wasm_runtime_overrides: self.wasm_runtime_overrides(),
 			execution_strategies: self.execution_strategies(is_dev, is_validator)?,
@@ -513,7 +528,9 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 			rpc_ws_max_connections: self.rpc_ws_max_connections()?,
 			rpc_cors: self.rpc_cors(is_dev)?,
 			rpc_max_payload: self.rpc_max_payload()?,
-			prometheus_config: self.prometheus_config(DCV::prometheus_listen_port())?,
+			ws_max_out_buffer_capacity: self.ws_max_out_buffer_capacity()?,
+			prometheus_config: self
+				.prometheus_config(DCV::prometheus_listen_port(), &chain_spec)?,
 			telemetry_endpoints,
 			default_heap_pages: self.default_heap_pages()?,
 			offchain_worker: self.offchain_worker(&role)?,
@@ -522,13 +539,13 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 			dev_key_seed: self.dev_key_seed(is_dev)?,
 			tracing_targets: self.tracing_targets()?,
 			tracing_receiver: self.tracing_receiver()?,
-			disable_log_reloading: self.is_log_filter_reloading_disabled()?,
 			chain_spec,
 			max_runtime_instances,
 			announce_block: self.announce_block()?,
 			role,
 			base_path: Some(base_path),
 			informant_output_format: Default::default(),
+			runtime_cache_size,
 		})
 	}
 
@@ -542,9 +559,14 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 		Ok(self.shared_params().log_filters().join(","))
 	}
 
-	/// Is log reloading disabled (enabled by default)
-	fn is_log_filter_reloading_disabled(&self) -> Result<bool> {
-		Ok(self.shared_params().is_log_filter_reloading_disabled())
+	/// Should the detailed log output be enabled.
+	fn detailed_log_output(&self) -> Result<bool> {
+		Ok(self.shared_params().detailed_log_output())
+	}
+
+	/// Is log reloading enabled?
+	fn enable_log_reloading(&self) -> Result<bool> {
+		Ok(self.shared_params().enable_log_reloading())
 	}
 
 	/// Should the log color output be disabled?
@@ -557,13 +579,45 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 	/// This method:
 	///
 	/// 1. Sets the panic handler
+	/// 2. Optionally customize logger/profiling
 	/// 2. Initializes the logger
 	/// 3. Raises the FD limit
-	fn init<C: SubstrateCli>(&self) -> Result<()> {
-		sp_panic_handler::set(&C::support_url(), &C::impl_version());
+	///
+	/// The `logger_hook` closure is executed before the logger is constructed
+	/// and initialized. It is useful for setting up a custom profiler.
+	///
+	/// Example:
+	/// ```
+	/// use sc_tracing::{SpanDatum, TraceEvent};
+	/// struct TestProfiler;
+	///
+	/// impl sc_tracing::TraceHandler for TestProfiler {
+	///  	fn handle_span(&self, sd: &SpanDatum) {}
+	/// 		fn handle_event(&self, _event: &TraceEvent) {}
+	/// };
+	///
+	/// fn logger_hook() -> impl FnOnce(&mut sc_cli::LoggerBuilder, &sc_service::Configuration) -> () {
+	/// 	|logger_builder, config| {
+	/// 			logger_builder.with_custom_profiling(Box::new(TestProfiler{}));
+	/// 	}
+	/// }
+	/// ```
+	fn init<F>(
+		&self,
+		support_url: &String,
+		impl_version: &String,
+		logger_hook: F,
+		config: &Configuration,
+	) -> Result<()>
+	where
+		F: FnOnce(&mut LoggerBuilder, &Configuration),
+	{
+		sp_panic_handler::set(support_url, impl_version);
 
 		let mut logger = LoggerBuilder::new(self.log_filters()?);
-		logger.with_log_reloading(!self.is_log_filter_reloading_disabled()?);
+		logger
+			.with_log_reloading(self.enable_log_reloading()?)
+			.with_detailed_output(self.detailed_log_output()?);
 
 		if let Some(tracing_targets) = self.tracing_targets()? {
 			let tracing_receiver = self.tracing_receiver()?;
@@ -573,6 +627,9 @@ pub trait CliConfiguration<DCV: DefaultConfigurationValues = ()>: Sized {
 		if self.disable_log_color()? {
 			logger.with_colors(false);
 		}
+
+		// Call hook for custom profiling setup.
+		logger_hook(&mut logger, &config);
 
 		logger.init()?;
 

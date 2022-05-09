@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -223,13 +223,14 @@ pub trait TransactionPool: Send + Sync {
 		at: NumberFor<Self::Block>,
 	) -> Pin<
 		Box<
-			dyn Future<Output = Box<dyn Iterator<Item = Arc<Self::InPoolTransaction>> + Send>>
-				+ Send,
+			dyn Future<
+					Output = Box<dyn ReadyTransactions<Item = Arc<Self::InPoolTransaction>> + Send>,
+				> + Send,
 		>,
 	>;
 
 	/// Get an iterator for ready transactions ordered by priority.
-	fn ready(&self) -> Box<dyn Iterator<Item = Arc<Self::InPoolTransaction>> + Send>;
+	fn ready(&self) -> Box<dyn ReadyTransactions<Item = Arc<Self::InPoolTransaction>> + Send>;
 
 	// *** Block production
 	/// Remove transactions identified by given hashes (and dependent transactions) from the pool.
@@ -254,9 +255,30 @@ pub trait TransactionPool: Send + Sync {
 	fn ready_transaction(&self, hash: &TxHash<Self>) -> Option<Arc<Self::InPoolTransaction>>;
 }
 
+/// An iterator of ready transactions.
+///
+/// The trait extends regular [`std::iter::Iterator`] trait and allows reporting
+/// last-returned element as invalid.
+///
+/// The implementation is then allowed, for performance reasons, to change the elements
+/// returned next, by e.g.  skipping elements that are known to depend on the reported
+/// transaction, which yields them invalid as well.
+pub trait ReadyTransactions: Iterator {
+	/// Report given transaction as invalid.
+	///
+	/// This might affect subsequent elements returned by the iterator, so dependent transactions
+	/// are skipped for performance reasons.
+	fn report_invalid(&mut self, _tx: &Self::Item);
+}
+
+/// A no-op implementation for an empty iterator.
+impl<T> ReadyTransactions for std::iter::Empty<T> {
+	fn report_invalid(&mut self, _tx: &T) {}
+}
+
 /// Events that the transaction pool listens for.
 pub enum ChainEvent<B: BlockT> {
-	/// New best block have been added to the chain
+	/// New best block have been added to the chain.
 	NewBestBlock {
 		/// Hash of the block.
 		hash: B::Hash,
@@ -267,8 +289,10 @@ pub enum ChainEvent<B: BlockT> {
 	},
 	/// An existing block has been finalized.
 	Finalized {
-		/// Hash of just finalized block
+		/// Hash of just finalized block.
 		hash: B::Hash,
+		/// Path from old finalized to new finalized parent.
+		tree_route: Arc<[B::Hash]>,
 	},
 }
 
@@ -331,7 +355,7 @@ impl<TPool: LocalTransactionPool> OffchainSubmitTransaction<TPool::Block> for TP
 		result.map(|_| ()).map_err(|e| {
 			log::warn!(
 				target: "txpool",
-				"(offchain call) Error submitting a transaction to the pool: {:?}",
+				"(offchain call) Error submitting a transaction to the pool: {}",
 				e
 			)
 		})

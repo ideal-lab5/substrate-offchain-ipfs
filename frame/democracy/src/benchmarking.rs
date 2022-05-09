@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2020-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2020-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,7 +19,7 @@
 
 use super::*;
 
-use frame_benchmarking::{account, benchmarks, impl_benchmark_test_suite, whitelist_account};
+use frame_benchmarking::{account, benchmarks, whitelist_account};
 use frame_support::{
 	assert_noop, assert_ok,
 	codec::Decode,
@@ -70,7 +70,7 @@ fn add_referendum<T: Config>(n: u32) -> Result<ReferendumIndex, &'static str> {
 	let referendum_index: ReferendumIndex = ReferendumCount::<T>::get() - 1;
 	T::Scheduler::schedule_named(
 		(DEMOCRACY_ID, referendum_index).encode(),
-		DispatchTime::At(1u32.into()),
+		DispatchTime::At(2u32.into()),
 		None,
 		63,
 		frame_system::RawOrigin::Root.into(),
@@ -239,9 +239,14 @@ benchmarks! {
 		let origin = T::ExternalOrigin::successful_origin();
 		let proposal_hash = T::Hashing::hash_of(&0);
 		// Add proposal to blacklist with block number 0
+
+		let addresses = (0..v)
+			.into_iter()
+			.map(|i| account::<T::AccountId>("blacklist", i, SEED))
+			.collect::<Vec<_>>();
 		Blacklist::<T>::insert(
 			proposal_hash,
-			(T::BlockNumber::zero(), vec![T::AccountId::default(); v as usize])
+			(T::BlockNumber::zero(), addresses),
 		);
 	}: _<T::Origin>(origin, proposal_hash)
 	verify {
@@ -292,7 +297,7 @@ benchmarks! {
 
 		let mut vetoers: Vec<T::AccountId> = Vec::new();
 		for i in 0 .. v {
-			vetoers.push(account("vetoer", i, SEED));
+			vetoers.push(account::<T::AccountId>("vetoer", i, SEED));
 		}
 		vetoers.sort();
 		Blacklist::<T>::insert(proposal_hash, (T::BlockNumber::zero(), vetoers));
@@ -422,7 +427,39 @@ benchmarks! {
 		assert_eq!(Democracy::<T>::referendum_count(), r, "referenda not created");
 		assert_eq!(Democracy::<T>::lowest_unbaked(), 0, "invalid referenda init");
 
-	}: { Democracy::<T>::on_initialize(0u32.into()) }
+	}: { Democracy::<T>::on_initialize(1u32.into()) }
+	verify {
+		// All should be on going
+		for i in 0 .. r {
+			if let Some(value) = ReferendumInfoOf::<T>::get(i) {
+				match value {
+					ReferendumInfo::Finished { .. } => return Err("Referendum has been finished".into()),
+					ReferendumInfo::Ongoing(_) => (),
+				}
+			}
+		}
+	}
+
+	on_initialize_base_with_launch_period {
+		let r in 1 .. MAX_REFERENDUMS;
+
+		for i in 0..r {
+			add_referendum::<T>(i)?;
+		}
+
+		for (key, mut info) in ReferendumInfoOf::<T>::iter() {
+			if let ReferendumInfo::Ongoing(ref mut status) = info {
+				status.end += 100u32.into();
+			}
+			ReferendumInfoOf::<T>::insert(key, info);
+		}
+
+		assert_eq!(Democracy::<T>::referendum_count(), r, "referenda not created");
+		assert_eq!(Democracy::<T>::lowest_unbaked(), 0, "invalid referenda init");
+
+		let block_number = T::LaunchPeriod::get();
+
+	}: { Democracy::<T>::on_initialize(block_number) }
 	verify {
 		// All should be on going
 		for i in 0 .. r {
@@ -742,7 +779,7 @@ benchmarks! {
 	}: enact_proposal(RawOrigin::Root, proposal_hash, 0)
 	verify {
 		// Fails due to mismatched origin
-		assert_last_event::<T>(Event::<T>::Executed(0, Err(BadOrigin.into())).into());
+		assert_last_event::<T>(Event::<T>::Executed { ref_index: 0, result: Err(BadOrigin.into()) }.into());
 	}
 
 	#[extra]
@@ -770,6 +807,10 @@ benchmarks! {
 			Err(Error::<T>::PreimageInvalid.into())
 		);
 	}
-}
 
-impl_benchmark_test_suite!(Democracy, crate::tests::new_test_ext(), crate::tests::Test);
+	impl_benchmark_test_suite!(
+		Democracy,
+		crate::tests::new_test_ext(),
+		crate::tests::Test
+	);
+}

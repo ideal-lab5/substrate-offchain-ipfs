@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2017-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -49,7 +49,7 @@ use sp_runtime::{
 	traits::{IsMember, Member, SaturatedConversion, Saturating, Zero},
 	RuntimeAppPublic,
 };
-use sp_std::{convert::TryFrom, vec::Vec};
+use sp_std::prelude::*;
 
 pub mod migrations;
 mod mock;
@@ -69,7 +69,6 @@ pub mod pallet {
 		type AuthorityId: Member
 			+ Parameter
 			+ RuntimeAppPublic
-			+ Default
 			+ MaybeSerializeDeserialize
 			+ MaxEncodedLen;
 		/// The maximum number of authorities that the pallet can hold.
@@ -82,7 +81,6 @@ pub mod pallet {
 	}
 
 	#[pallet::pallet]
-	#[pallet::generate_storage_info]
 	pub struct Pallet<T>(sp_std::marker::PhantomData<T>);
 
 	#[pallet::hooks]
@@ -151,11 +149,11 @@ impl<T: Config> Pallet<T> {
 	fn change_authorities(new: WeakBoundedVec<T::AuthorityId, T::MaxAuthorities>) {
 		<Authorities<T>>::put(&new);
 
-		let log: DigestItem<T::Hash> = DigestItem::Consensus(
+		let log = DigestItem::Consensus(
 			AURA_ENGINE_ID,
 			ConsensusLog::AuthoritiesChange(new.into_inner()).encode(),
 		);
-		<frame_system::Pallet<T>>::deposit_log(log.into());
+		<frame_system::Pallet<T>>::deposit_log(log);
 	}
 
 	fn initialize_authorities(authorities: &[T::AuthorityId]) {
@@ -221,13 +219,13 @@ impl<T: Config> OneSessionHandler<T::AccountId> for Pallet<T> {
 		}
 	}
 
-	fn on_disabled(i: usize) {
-		let log: DigestItem<T::Hash> = DigestItem::Consensus(
+	fn on_disabled(i: u32) {
+		let log = DigestItem::Consensus(
 			AURA_ENGINE_ID,
 			ConsensusLog::<T::AuthorityId>::OnDisabled(i as AuthorityIndex).encode(),
 		);
 
-		<frame_system::Pallet<T>>::deposit_log(log.into());
+		<frame_system::Pallet<T>>::deposit_log(log);
 	}
 }
 

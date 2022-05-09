@@ -40,14 +40,12 @@ RUN mv /usr/share/ca* /tmp && \
 
 COPY --from=builder /substrate/target/$PROFILE/substrate /usr/local/bin
 COPY --from=builder /substrate/target/$PROFILE/subkey /usr/local/bin
-COPY --from=builder /substrate/target/$PROFILE/node-rpc-client /usr/local/bin
 COPY --from=builder /substrate/target/$PROFILE/node-template /usr/local/bin
 COPY --from=builder /substrate/target/$PROFILE/chain-spec-builder /usr/local/bin
 
 # checks
 RUN ldd /usr/local/bin/substrate && \
 	/usr/local/bin/substrate --version
-
 # Shrinking
 RUN rm -rf /usr/lib/python* && \
 	rm -rf /usr/bin /usr/sbin /usr/share/man

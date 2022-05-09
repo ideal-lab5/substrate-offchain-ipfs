@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2017-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -32,6 +32,9 @@ const MEGABYTE: usize = 1024 * 1024;
 
 /// Maximal payload accepted by RPC servers.
 pub const RPC_MAX_PAYLOAD_DEFAULT: usize = 15 * MEGABYTE;
+
+/// Maximal buffer size in WS server.
+pub const WS_MAX_BUFFER_CAPACITY_DEFAULT: usize = 16 * MEGABYTE;
 
 /// Default maximum number of connections for WS RPC servers.
 const WS_MAX_CONNECTIONS: usize = 100;
@@ -87,7 +90,7 @@ impl ServerMetrics {
 				Ok(Self {
 					session_opened: register(
 						Counter::new(
-							"rpc_sessions_opened",
+							"substrate_rpc_sessions_opened",
 							"Number of persistent RPC sessions opened",
 						)?,
 						r,
@@ -95,7 +98,7 @@ impl ServerMetrics {
 					.into(),
 					session_closed: register(
 						Counter::new(
-							"rpc_sessions_closed",
+							"substrate_rpc_sessions_closed",
 							"Number of persistent RPC sessions closed",
 						)?,
 						r,
@@ -172,18 +175,32 @@ pub fn start_ws<
 	cors: Option<&Vec<String>>,
 	io: RpcHandler<M>,
 	maybe_max_payload_mb: Option<usize>,
+	maybe_max_out_buffer_capacity_mb: Option<usize>,
 	server_metrics: ServerMetrics,
 	tokio_handle: tokio::runtime::Handle,
 ) -> io::Result<ws::Server> {
-	let rpc_max_payload = maybe_max_payload_mb
+	let max_payload = maybe_max_payload_mb
 		.map(|mb| mb.saturating_mul(MEGABYTE))
 		.unwrap_or(RPC_MAX_PAYLOAD_DEFAULT);
+	let max_out_buffer_capacity = maybe_max_out_buffer_capacity_mb
+		.map(|mb| mb.saturating_mul(MEGABYTE))
+		.unwrap_or(WS_MAX_BUFFER_CAPACITY_DEFAULT);
+
+	if max_payload > max_out_buffer_capacity {
+		log::warn!(
+			"maximum payload ({}) is more than maximum output buffer ({}) size in ws server, the payload will actually be limited by the buffer size",
+			max_payload,
+			max_out_buffer_capacity,
+		)
+	}
+
 	ws::ServerBuilder::with_meta_extractor(io, |context: &ws::RequestContext| {
 		context.sender().into()
 	})
 	.event_loop_executor(tokio_handle)
-	.max_payload(rpc_max_payload)
+	.max_payload(max_payload)
 	.max_connections(max_connections.unwrap_or(WS_MAX_CONNECTIONS))
+	.max_out_buffer_capacity(max_out_buffer_capacity)
 	.allowed_origins(map_cors(cors))
 	.allowed_hosts(hosts_filtering(cors.is_some()))
 	.session_stats(server_metrics)

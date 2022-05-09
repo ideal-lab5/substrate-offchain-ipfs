@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2017-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -52,11 +52,13 @@ use sp_core::{
 		HttpError, HttpRequestId, HttpRequestStatus, OpaqueNetworkState, StorageKind, Timestamp,
 		IpfsRequest, IpfsRequestId, IpfsRequestStatus,
 	},
-	sr25519, LogLevel, LogLevelFilter, OpaquePeerId, H256,
+	sr25519,
+	storage::StateVersion,
+	LogLevel, LogLevelFilter, OpaquePeerId, H256,
 };
 
 #[cfg(feature = "std")]
-use sp_trie::{trie_types::Layout, TrieConfiguration};
+use sp_trie::{LayoutV0, LayoutV1, TrieConfiguration};
 
 use sp_runtime_interface::{
 	pass_by::{PassBy, PassByCodec},
@@ -64,6 +66,12 @@ use sp_runtime_interface::{
 };
 
 use codec::{Decode, Encode};
+
+#[cfg(feature = "std")]
+use secp256k1::{
+	ecdsa::{RecoverableSignature, RecoveryId},
+	Message, SECP256K1,
+};
 
 #[cfg(feature = "std")]
 use sp_externalities::{Externalities, ExternalitiesExt};
@@ -89,12 +97,12 @@ pub enum EcdsaVerifyError {
 }
 
 /// The outcome of calling `storage_kill`. Returned value is the number of storage items
-/// removed from the trie from making the `storage_kill` call.
+/// removed from the backend from making the `storage_kill` call.
 #[derive(PassByCodec, Encode, Decode)]
 pub enum KillStorageResult {
-	/// No key remains in the child trie.
+	/// All key to remove were removed, return number of key removed from backend.
 	AllRemoved(u32),
-	/// At least one key still resides in the child trie due to the supplied limit.
+	/// Not all key to remove were removed, return number of key removed from backend.
 	SomeRemaining(u32),
 }
 
@@ -151,9 +159,7 @@ pub trait Storage {
 	/// The limit can be used to partially delete a prefix storage in case it is too large
 	/// to delete in one go (block).
 	///
-	/// It returns a boolean false iff some keys are remaining in
-	/// the prefix after the functions returns. Also returns a `u32` with
-	/// the number of keys removed from the process.
+	/// Returns [`KillStorageResult`] to inform about the result.
 	///
 	/// # Note
 	///
@@ -164,8 +170,10 @@ pub trait Storage {
 	///
 	/// Calling this function multiple times per block for the same `prefix` does
 	/// not make much sense because it is not cumulative when called inside the same block.
-	/// Use this function to distribute the deletion of a single child trie across multiple
-	/// blocks.
+	/// The deletion would always start from `prefix` resulting in the same keys being deleted
+	/// every time this function is called with the exact same arguments per block. This happens
+	/// because the keys in the overlay are not taken into account when deleting keys in the
+	/// backend.
 	#[version(2)]
 	fn clear_prefix(&mut self, prefix: &[u8], limit: Option<u32>) -> KillStorageResult {
 		let (all_removed, num_removed) = Externalities::clear_prefix(*self, prefix, limit);
@@ -193,19 +201,22 @@ pub trait Storage {
 	///
 	/// Returns a `Vec<u8>` that holds the SCALE encoded hash.
 	fn root(&mut self) -> Vec<u8> {
-		self.storage_root()
+		self.storage_root(StateVersion::V0)
 	}
 
-	/// "Commit" all existing operations and get the resulting storage change root.
-	/// `parent_hash` is a SCALE encoded hash.
+	/// "Commit" all existing operations and compute the resulting storage root.
 	///
 	/// The hashing algorithm is defined by the `Block`.
 	///
-	/// Returns `Some(Vec<u8>)` which holds the SCALE encoded hash or `None` when
-	/// changes trie is disabled.
-	fn changes_root(&mut self, parent_hash: &[u8]) -> Option<Vec<u8>> {
-		self.storage_changes_root(parent_hash)
-			.expect("Invalid `parent_hash` given to `changes_root`.")
+	/// Returns a `Vec<u8>` that holds the SCALE encoded hash.
+	#[version(2)]
+	fn root(&mut self, version: StateVersion) -> Vec<u8> {
+		self.storage_root(version)
+	}
+
+	/// Always returns `None`. This function exists for compatibility reasons.
+	fn changes_root(&mut self, _parent_hash: &[u8]) -> Option<Vec<u8>> {
+		None
 	}
 
 	/// Get the next key in storage after the given one in lexicographic order.
@@ -381,7 +392,19 @@ pub trait DefaultChildStorage {
 	/// Returns a `Vec<u8>` that holds the SCALE encoded hash.
 	fn root(&mut self, storage_key: &[u8]) -> Vec<u8> {
 		let child_info = ChildInfo::new_default(storage_key);
-		self.child_storage_root(&child_info)
+		self.child_storage_root(&child_info, StateVersion::V0)
+	}
+
+	/// Default child root calculation.
+	///
+	/// "Commit" all existing operations and compute the resulting child storage root.
+	/// The hashing algorithm is defined by the `Block`.
+	///
+	/// Returns a `Vec<u8>` that holds the SCALE encoded hash.
+	#[version(2)]
+	fn root(&mut self, storage_key: &[u8], version: StateVersion) -> Vec<u8> {
+		let child_info = ChildInfo::new_default(storage_key);
+		self.child_storage_root(&child_info, version)
 	}
 
 	/// Child storage key iteration.
@@ -398,27 +421,63 @@ pub trait DefaultChildStorage {
 pub trait Trie {
 	/// A trie root formed from the iterated items.
 	fn blake2_256_root(input: Vec<(Vec<u8>, Vec<u8>)>) -> H256 {
-		Layout::<sp_core::Blake2Hasher>::trie_root(input)
+		LayoutV0::<sp_core::Blake2Hasher>::trie_root(input)
+	}
+
+	/// A trie root formed from the iterated items.
+	#[version(2)]
+	fn blake2_256_root(input: Vec<(Vec<u8>, Vec<u8>)>, version: StateVersion) -> H256 {
+		match version {
+			StateVersion::V0 => LayoutV0::<sp_core::Blake2Hasher>::trie_root(input),
+			StateVersion::V1 => LayoutV1::<sp_core::Blake2Hasher>::trie_root(input),
+		}
 	}
 
 	/// A trie root formed from the enumerated items.
 	fn blake2_256_ordered_root(input: Vec<Vec<u8>>) -> H256 {
-		Layout::<sp_core::Blake2Hasher>::ordered_trie_root(input)
+		LayoutV0::<sp_core::Blake2Hasher>::ordered_trie_root(input)
+	}
+
+	/// A trie root formed from the enumerated items.
+	#[version(2)]
+	fn blake2_256_ordered_root(input: Vec<Vec<u8>>, version: StateVersion) -> H256 {
+		match version {
+			StateVersion::V0 => LayoutV0::<sp_core::Blake2Hasher>::ordered_trie_root(input),
+			StateVersion::V1 => LayoutV1::<sp_core::Blake2Hasher>::ordered_trie_root(input),
+		}
 	}
 
 	/// A trie root formed from the iterated items.
 	fn keccak_256_root(input: Vec<(Vec<u8>, Vec<u8>)>) -> H256 {
-		Layout::<sp_core::KeccakHasher>::trie_root(input)
+		LayoutV0::<sp_core::KeccakHasher>::trie_root(input)
+	}
+
+	/// A trie root formed from the iterated items.
+	#[version(2)]
+	fn keccak_256_root(input: Vec<(Vec<u8>, Vec<u8>)>, version: StateVersion) -> H256 {
+		match version {
+			StateVersion::V0 => LayoutV0::<sp_core::KeccakHasher>::trie_root(input),
+			StateVersion::V1 => LayoutV1::<sp_core::KeccakHasher>::trie_root(input),
+		}
 	}
 
 	/// A trie root formed from the enumerated items.
 	fn keccak_256_ordered_root(input: Vec<Vec<u8>>) -> H256 {
-		Layout::<sp_core::KeccakHasher>::ordered_trie_root(input)
+		LayoutV0::<sp_core::KeccakHasher>::ordered_trie_root(input)
+	}
+
+	/// A trie root formed from the enumerated items.
+	#[version(2)]
+	fn keccak_256_ordered_root(input: Vec<Vec<u8>>, version: StateVersion) -> H256 {
+		match version {
+			StateVersion::V0 => LayoutV0::<sp_core::KeccakHasher>::ordered_trie_root(input),
+			StateVersion::V1 => LayoutV1::<sp_core::KeccakHasher>::ordered_trie_root(input),
+		}
 	}
 
 	/// Verify trie proof
 	fn blake2_256_verify_proof(root: H256, proof: &[Vec<u8>], key: &[u8], value: &[u8]) -> bool {
-		sp_trie::verify_trie_proof::<Layout<sp_core::Blake2Hasher>, _, _, _>(
+		sp_trie::verify_trie_proof::<LayoutV0<sp_core::Blake2Hasher>, _, _, _>(
 			&root,
 			proof,
 			&[(key, Some(value))],
@@ -427,13 +486,67 @@ pub trait Trie {
 	}
 
 	/// Verify trie proof
+	#[version(2)]
+	fn blake2_256_verify_proof(
+		root: H256,
+		proof: &[Vec<u8>],
+		key: &[u8],
+		value: &[u8],
+		version: StateVersion,
+	) -> bool {
+		match version {
+			StateVersion::V0 => sp_trie::verify_trie_proof::<
+				LayoutV0<sp_core::Blake2Hasher>,
+				_,
+				_,
+				_,
+			>(&root, proof, &[(key, Some(value))])
+			.is_ok(),
+			StateVersion::V1 => sp_trie::verify_trie_proof::<
+				LayoutV1<sp_core::Blake2Hasher>,
+				_,
+				_,
+				_,
+			>(&root, proof, &[(key, Some(value))])
+			.is_ok(),
+		}
+	}
+
+	/// Verify trie proof
 	fn keccak_256_verify_proof(root: H256, proof: &[Vec<u8>], key: &[u8], value: &[u8]) -> bool {
-		sp_trie::verify_trie_proof::<Layout<sp_core::KeccakHasher>, _, _, _>(
+		sp_trie::verify_trie_proof::<LayoutV0<sp_core::KeccakHasher>, _, _, _>(
 			&root,
 			proof,
 			&[(key, Some(value))],
 		)
 		.is_ok()
+	}
+
+	/// Verify trie proof
+	#[version(2)]
+	fn keccak_256_verify_proof(
+		root: H256,
+		proof: &[Vec<u8>],
+		key: &[u8],
+		value: &[u8],
+		version: StateVersion,
+	) -> bool {
+		match version {
+			StateVersion::V0 => sp_trie::verify_trie_proof::<
+				LayoutV0<sp_core::KeccakHasher>,
+				_,
+				_,
+				_,
+			>(&root, proof, &[(key, Some(value))])
+			.is_ok(),
+			StateVersion::V1 => sp_trie::verify_trie_proof::<
+				LayoutV1<sp_core::KeccakHasher>,
+				_,
+				_,
+				_,
+			>(&root, proof, &[(key, Some(value))])
+			.is_ok(),
+		}
 	}
 }
 
@@ -541,7 +654,7 @@ pub trait Crypto {
 		SyncCryptoStore::sign_with(keystore, id, &pub_key.into(), msg)
 			.ok()
 			.flatten()
-			.map(|sig| ed25519::Signature::from_slice(sig.as_slice()))
+			.and_then(|sig| ed25519::Signature::from_slice(&sig))
 	}
 
 	/// Verify `ed25519` signature.
@@ -665,7 +778,7 @@ pub trait Crypto {
 		SyncCryptoStore::sign_with(keystore, id, &pub_key.into(), msg)
 			.ok()
 			.flatten()
-			.map(|sig| sr25519::Signature::from_slice(sig.as_slice()))
+			.and_then(|sig| sr25519::Signature::from_slice(&sig))
 	}
 
 	/// Verify an `sr25519` signature.
@@ -714,13 +827,31 @@ pub trait Crypto {
 		SyncCryptoStore::sign_with(keystore, id, &pub_key.into(), msg)
 			.ok()
 			.flatten()
-			.map(|sig| ecdsa::Signature::from_slice(sig.as_slice()))
+			.and_then(|sig| ecdsa::Signature::from_slice(&sig))
+	}
+
+	/// Sign the given a pre-hashed `msg` with the `ecdsa` key that corresponds to the given public
+	/// key and key type in the keystore.
+	///
+	/// Returns the signature.
+	fn ecdsa_sign_prehashed(
+		&mut self,
+		id: KeyTypeId,
+		pub_key: &ecdsa::Public,
+		msg: &[u8; 32],
+	) -> Option<ecdsa::Signature> {
+		let keystore = &***self
+			.extension::<KeystoreExt>()
+			.expect("No `keystore` associated for the current context!");
+		SyncCryptoStore::ecdsa_sign_prehashed(keystore, id, pub_key, msg).ok().flatten()
 	}
 
 	/// Verify `ecdsa` signature.
 	///
 	/// Returns `true` when the verification was successful.
+	/// This version is able to handle, non-standard, overflowing signatures.
 	fn ecdsa_verify(sig: &ecdsa::Signature, msg: &[u8], pub_key: &ecdsa::Public) -> bool {
+		#[allow(deprecated)]
 		ecdsa::Pair::verify_deprecated(sig, msg, pub_key)
 	}
 
@@ -730,6 +861,17 @@ pub trait Crypto {
 	#[version(2)]
 	fn ecdsa_verify(sig: &ecdsa::Signature, msg: &[u8], pub_key: &ecdsa::Public) -> bool {
 		ecdsa::Pair::verify(sig, msg, pub_key)
+	}
+
+	/// Verify `ecdsa` signature with pre-hashed `msg`.
+	///
+	/// Returns `true` when the verification was successful.
+	fn ecdsa_verify_prehashed(
+		sig: &ecdsa::Signature,
+		msg: &[u8; 32],
+		pub_key: &ecdsa::Public,
+	) -> bool {
+		ecdsa::Pair::verify_prehashed(sig, msg, pub_key)
 	}
 
 	/// Register a `ecdsa` signature for batch verification.
@@ -758,18 +900,20 @@ pub trait Crypto {
 	///
 	/// Returns `Err` if the signature is bad, otherwise the 64-byte pubkey
 	/// (doesn't include the 0x04 prefix).
+	/// This version is able to handle, non-standard, overflowing signatures.
 	fn secp256k1_ecdsa_recover(
 		sig: &[u8; 65],
 		msg: &[u8; 32],
 	) -> Result<[u8; 64], EcdsaVerifyError> {
-		let rs = libsecp256k1::Signature::parse_overflowing_slice(&sig[0..64])
-			.map_err(|_| EcdsaVerifyError::BadRS)?;
-		let v = libsecp256k1::RecoveryId::parse(
-			if sig[64] > 26 { sig[64] - 27 } else { sig[64] } as u8
+		let rid = libsecp256k1::RecoveryId::parse(
+			if sig[64] > 26 { sig[64] - 27 } else { sig[64] } as u8,
 		)
 		.map_err(|_| EcdsaVerifyError::BadV)?;
-		let pubkey = libsecp256k1::recover(&libsecp256k1::Message::parse(msg), &rs, &v)
-			.map_err(|_| EcdsaVerifyError::BadSignature)?;
+		let sig = libsecp256k1::Signature::parse_overflowing_slice(&sig[..64])
+			.map_err(|_| EcdsaVerifyError::BadRS)?;
+		let msg = libsecp256k1::Message::parse(msg);
+		let pubkey =
+			libsecp256k1::recover(&msg, &sig, &rid).map_err(|_| EcdsaVerifyError::BadSignature)?;
 		let mut res = [0u8; 64];
 		res.copy_from_slice(&pubkey.serialize()[1..65]);
 		Ok(res)
@@ -787,16 +931,16 @@ pub trait Crypto {
 		sig: &[u8; 65],
 		msg: &[u8; 32],
 	) -> Result<[u8; 64], EcdsaVerifyError> {
-		let rs = libsecp256k1::Signature::parse_standard_slice(&sig[0..64])
+		let rid = RecoveryId::from_i32(if sig[64] > 26 { sig[64] - 27 } else { sig[64] } as i32)
+			.map_err(|_| EcdsaVerifyError::BadV)?;
+		let sig = RecoverableSignature::from_compact(&sig[..64], rid)
 			.map_err(|_| EcdsaVerifyError::BadRS)?;
-		let v = libsecp256k1::RecoveryId::parse(
-			if sig[64] > 26 { sig[64] - 27 } else { sig[64] } as u8
-		)
-		.map_err(|_| EcdsaVerifyError::BadV)?;
-		let pubkey = libsecp256k1::recover(&libsecp256k1::Message::parse(msg), &rs, &v)
+		let msg = Message::from_slice(msg).expect("Message is 32 bytes; qed");
+		let pubkey = SECP256K1
+			.recover_ecdsa(&msg, &sig)
 			.map_err(|_| EcdsaVerifyError::BadSignature)?;
 		let mut res = [0u8; 64];
-		res.copy_from_slice(&pubkey.serialize()[1..65]);
+		res.copy_from_slice(&pubkey.serialize_uncompressed()[1..]);
 		Ok(res)
 	}
 
@@ -810,14 +954,15 @@ pub trait Crypto {
 		sig: &[u8; 65],
 		msg: &[u8; 32],
 	) -> Result<[u8; 33], EcdsaVerifyError> {
-		let rs = libsecp256k1::Signature::parse_overflowing_slice(&sig[0..64])
-			.map_err(|_| EcdsaVerifyError::BadRS)?;
-		let v = libsecp256k1::RecoveryId::parse(
-			if sig[64] > 26 { sig[64] - 27 } else { sig[64] } as u8
+		let rid = libsecp256k1::RecoveryId::parse(
+			if sig[64] > 26 { sig[64] - 27 } else { sig[64] } as u8,
 		)
 		.map_err(|_| EcdsaVerifyError::BadV)?;
-		let pubkey = libsecp256k1::recover(&libsecp256k1::Message::parse(msg), &rs, &v)
-			.map_err(|_| EcdsaVerifyError::BadSignature)?;
+		let sig = libsecp256k1::Signature::parse_overflowing_slice(&sig[0..64])
+			.map_err(|_| EcdsaVerifyError::BadRS)?;
+		let msg = libsecp256k1::Message::parse(msg);
+		let pubkey =
+			libsecp256k1::recover(&msg, &sig, &rid).map_err(|_| EcdsaVerifyError::BadSignature)?;
 		Ok(pubkey.serialize_compressed())
 	}
 
@@ -832,15 +977,15 @@ pub trait Crypto {
 		sig: &[u8; 65],
 		msg: &[u8; 32],
 	) -> Result<[u8; 33], EcdsaVerifyError> {
-		let rs = libsecp256k1::Signature::parse_standard_slice(&sig[0..64])
+		let rid = RecoveryId::from_i32(if sig[64] > 26 { sig[64] - 27 } else { sig[64] } as i32)
+			.map_err(|_| EcdsaVerifyError::BadV)?;
+		let sig = RecoverableSignature::from_compact(&sig[..64], rid)
 			.map_err(|_| EcdsaVerifyError::BadRS)?;
-		let v = libsecp256k1::RecoveryId::parse(
-			if sig[64] > 26 { sig[64] - 27 } else { sig[64] } as u8
-		)
-		.map_err(|_| EcdsaVerifyError::BadV)?;
-		let pubkey = libsecp256k1::recover(&libsecp256k1::Message::parse(msg), &rs, &v)
+		let msg = Message::from_slice(msg).expect("Message is 32 bytes; qed");
+		let pubkey = SECP256K1
+			.recover_ecdsa(&msg, &sig)
 			.map_err(|_| EcdsaVerifyError::BadSignature)?;
-		Ok(pubkey.serialize_compressed())
+		Ok(pubkey.serialize())
 	}
 }
 
@@ -1175,6 +1320,17 @@ pub trait Allocator {
 	}
 }
 
+/// WASM-only interface which allows for aborting the execution in case
+/// of an unrecoverable error.
+#[runtime_interface(wasm_only)]
+pub trait PanicHandler {
+	/// Aborts the current execution with the given error message.
+	#[trap_on_return]
+	fn abort_on_panic(&mut self, message: &str) {
+		self.register_panic_error_message(message);
+	}
+}
+
 /// Interface that provides functions for logging from within the runtime.
 #[runtime_interface]
 pub trait Logging {
@@ -1473,14 +1629,14 @@ pub trait RuntimeTasks {
 }
 
 /// Allocator used by Substrate when executing the Wasm runtime.
-#[cfg(not(feature = "std"))]
+#[cfg(all(target_arch = "wasm32", not(feature = "std")))]
 struct WasmAllocator;
 
-#[cfg(all(not(feature = "disable_allocator"), not(feature = "std")))]
+#[cfg(all(target_arch = "wasm32", not(feature = "disable_allocator"), not(feature = "std")))]
 #[global_allocator]
 static ALLOCATOR: WasmAllocator = WasmAllocator;
 
-#[cfg(not(feature = "std"))]
+#[cfg(all(target_arch = "wasm32", not(feature = "std")))]
 mod allocator_impl {
 	use super::*;
 	use core::alloc::{GlobalAlloc, Layout};
@@ -1502,21 +1658,35 @@ mod allocator_impl {
 #[no_mangle]
 pub fn panic(info: &core::panic::PanicInfo) -> ! {
 	let message = sp_std::alloc::format!("{}", info);
-	logging::log(LogLevel::Error, "runtime", message.as_bytes());
-	core::arch::wasm32::unreachable();
+	#[cfg(feature = "improved_panic_error_reporting")]
+	{
+		panic_handler::abort_on_panic(&message);
+	}
+	#[cfg(not(feature = "improved_panic_error_reporting"))]
+	{
+		logging::log(LogLevel::Error, "runtime", message.as_bytes());
+		core::arch::wasm32::unreachable();
+	}
 }
 
 /// A default OOM handler for WASM environment.
 #[cfg(all(not(feature = "disable_oom"), not(feature = "std")))]
 #[alloc_error_handler]
 pub fn oom(_: core::alloc::Layout) -> ! {
-	logging::log(LogLevel::Error, "runtime", b"Runtime memory exhausted. Aborting");
-	core::arch::wasm32::unreachable();
+	#[cfg(feature = "improved_panic_error_reporting")]
+	{
+		panic_handler::abort_on_panic("Runtime memory exhausted.");
+	}
+	#[cfg(not(feature = "improved_panic_error_reporting"))]
+	{
+		logging::log(LogLevel::Error, "runtime", b"Runtime memory exhausted. Aborting");
+		core::arch::wasm32::unreachable();
+	}
 }
 
 /// Type alias for Externalities implementation used in tests.
 #[cfg(feature = "std")]
-pub type TestExternalities = sp_state_machine::TestExternalities<sp_core::Blake2Hasher, u64>;
+pub type TestExternalities = sp_state_machine::TestExternalities<sp_core::Blake2Hasher>;
 
 /// The host functions Substrate provides for the Wasm runtime environment.
 ///
@@ -1531,6 +1701,7 @@ pub type SubstrateHostFunctions = (
 	crypto::HostFunctions,
 	hashing::HostFunctions,
 	allocator::HostFunctions,
+	panic_handler::HostFunctions,
 	logging::HostFunctions,
 	sandbox::HostFunctions,
 	crate::trie::HostFunctions,
@@ -1542,7 +1713,10 @@ pub type SubstrateHostFunctions = (
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sp_core::{map, storage::Storage, testing::TaskExecutor, traits::TaskExecutorExt};
+	use sp_core::{
+		crypto::UncheckedInto, map, storage::Storage, testing::TaskExecutor,
+		traits::TaskExecutorExt,
+	};
 	use sp_state_machine::BasicExternalities;
 	use std::any::TypeId;
 
@@ -1565,6 +1739,16 @@ mod tests {
 		t.execute_with(|| {
 			assert_eq!(storage::get(b"hello"), None);
 			assert_eq!(storage::get(b"foo"), Some(b"bar".to_vec()));
+		});
+
+		let value = vec![7u8; 35];
+		let storage =
+			Storage { top: map![b"foo00".to_vec() => value.clone()], children_default: map![] };
+		t = BasicExternalities::new(storage);
+
+		t.execute_with(|| {
+			assert_eq!(storage::get(b"hello"), None);
+			assert_eq!(storage::get(b"foo00"), Some(value.clone()));
 		});
 	}
 
@@ -1643,7 +1827,7 @@ mod tests {
 			}
 
 			// push invlaid
-			crypto::sr25519_batch_verify(&Default::default(), &Vec::new(), &Default::default());
+			crypto::sr25519_batch_verify(&zero_sr_sig(), &Vec::new(), &zero_sr_pub());
 			assert!(!crypto::finish_batch_verify());
 
 			crypto::start_batch_verify();
@@ -1656,14 +1840,31 @@ mod tests {
 		});
 	}
 
+	fn zero_ed_pub() -> ed25519::Public {
+		[0u8; 32].unchecked_into()
+	}
+
+	fn zero_ed_sig() -> ed25519::Signature {
+		ed25519::Signature::from_raw([0u8; 64])
+	}
+
+	fn zero_sr_pub() -> sr25519::Public {
+		[0u8; 32].unchecked_into()
+	}
+
+	fn zero_sr_sig() -> sr25519::Signature {
+		sr25519::Signature::from_raw([0u8; 64])
+	}
+
 	#[test]
 	fn batching_works() {
 		let mut ext = BasicExternalities::default();
 		ext.register_extension(TaskExecutorExt::new(TaskExecutor::new()));
+
 		ext.execute_with(|| {
 			// invalid ed25519 signature
 			crypto::start_batch_verify();
-			crypto::ed25519_batch_verify(&Default::default(), &Vec::new(), &Default::default());
+			crypto::ed25519_batch_verify(&zero_ed_sig(), &Vec::new(), &zero_ed_pub());
 			assert!(!crypto::finish_batch_verify());
 
 			// 2 valid ed25519 signatures
@@ -1689,7 +1890,7 @@ mod tests {
 			let signature = pair.sign(msg);
 			crypto::ed25519_batch_verify(&signature, msg, &pair.public());
 
-			crypto::ed25519_batch_verify(&Default::default(), &Vec::new(), &Default::default());
+			crypto::ed25519_batch_verify(&zero_ed_sig(), &Vec::new(), &zero_ed_pub());
 
 			assert!(!crypto::finish_batch_verify());
 
@@ -1721,7 +1922,7 @@ mod tests {
 			let signature = pair.sign(msg);
 			crypto::sr25519_batch_verify(&signature, msg, &pair.public());
 
-			crypto::sr25519_batch_verify(&Default::default(), &Vec::new(), &Default::default());
+			crypto::sr25519_batch_verify(&zero_sr_sig(), &Vec::new(), &zero_sr_pub());
 
 			assert!(!crypto::finish_batch_verify());
 		});

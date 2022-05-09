@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -20,7 +20,6 @@
 
 use crate::{
 	host::HostState,
-	imports::{resolve_imports, Imports},
 	instance_wrapper::{EntryPoint, InstanceWrapper},
 	util,
 };
@@ -34,26 +33,47 @@ use sc_executor_common::{
 	wasm_runtime::{InvokeMethod, WasmInstance, WasmModule},
 };
 use sp_runtime_interface::unpack_ptr_and_len;
-use sp_wasm_interface::{Function, Pointer, Value, WordSize};
+use sp_wasm_interface::{HostFunctions, Pointer, Value, WordSize};
 use std::{
 	path::{Path, PathBuf},
-	rc::Rc,
-	sync::Arc,
+	sync::{
+		atomic::{AtomicBool, Ordering},
+		Arc,
+	},
 };
-use wasmtime::{AsContext, AsContextMut, Engine, StoreLimits};
+use wasmtime::{Engine, Memory, StoreLimits, Table};
 
 pub(crate) struct StoreData {
-	/// The limits we aply to the store. We need to store it here to return a reference to this
+	/// The limits we apply to the store. We need to store it here to return a reference to this
 	/// object when we have the limits enabled.
-	limits: StoreLimits,
+	pub(crate) limits: StoreLimits,
 	/// This will only be set when we call into the runtime.
-	host_state: Option<Rc<HostState>>,
+	pub(crate) host_state: Option<HostState>,
+	/// This will be always set once the store is initialized.
+	pub(crate) memory: Option<Memory>,
+	/// This will be set only if the runtime actually contains a table.
+	pub(crate) table: Option<Table>,
 }
 
 impl StoreData {
 	/// Returns a reference to the host state.
-	pub fn host_state(&self) -> Option<&Rc<HostState>> {
+	pub fn host_state(&self) -> Option<&HostState> {
 		self.host_state.as_ref()
+	}
+
+	/// Returns a mutable reference to the host state.
+	pub fn host_state_mut(&mut self) -> Option<&mut HostState> {
+		self.host_state.as_mut()
+	}
+
+	/// Returns the host memory.
+	pub fn memory(&self) -> Memory {
+		self.memory.expect("memory is always set; qed")
+	}
+
+	/// Returns the host table.
+	pub fn table(&self) -> Option<Table> {
+		self.table
 	}
 }
 
@@ -61,48 +81,45 @@ pub(crate) type Store = wasmtime::Store<StoreData>;
 
 enum Strategy {
 	FastInstanceReuse {
-		instance_wrapper: Rc<InstanceWrapper>,
+		instance_wrapper: InstanceWrapper,
 		globals_snapshot: GlobalsSnapshot<wasmtime::Global>,
 		data_segments_snapshot: Arc<DataSegmentsSnapshot>,
 		heap_base: u32,
-		store: Store,
 	},
 	RecreateInstance(InstanceCreator),
 }
 
 struct InstanceCreator {
-	store: Store,
-	module: Arc<wasmtime::Module>,
-	imports: Arc<Imports>,
-	heap_pages: u32,
+	engine: wasmtime::Engine,
+	instance_pre: Arc<wasmtime::InstancePre<StoreData>>,
+	max_memory_size: Option<usize>,
 }
 
 impl InstanceCreator {
 	fn instantiate(&mut self) -> Result<InstanceWrapper> {
-		InstanceWrapper::new(&*self.module, &*self.imports, self.heap_pages, &mut self.store)
+		InstanceWrapper::new(&self.engine, &self.instance_pre, self.max_memory_size)
 	}
 }
 
-struct InstanceGlobals<'a, C> {
-	ctx: &'a mut C,
-	instance: &'a InstanceWrapper,
+struct InstanceGlobals<'a> {
+	instance: &'a mut InstanceWrapper,
 }
 
-impl<'a, C: AsContextMut> runtime_blob::InstanceGlobals for InstanceGlobals<'a, C> {
+impl<'a> runtime_blob::InstanceGlobals for InstanceGlobals<'a> {
 	type Global = wasmtime::Global;
 
 	fn get_global(&mut self, export_name: &str) -> Self::Global {
 		self.instance
-			.get_global(&mut self.ctx, export_name)
+			.get_global(export_name)
 			.expect("get_global is guaranteed to be called with an export name of a global; qed")
 	}
 
 	fn get_global_value(&mut self, global: &Self::Global) -> Value {
-		util::from_wasmtime_val(global.get(&mut self.ctx))
+		util::from_wasmtime_val(global.get(&mut self.instance.store_mut()))
 	}
 
 	fn set_global_value(&mut self, global: &Self::Global, value: Value) {
-		global.set(&mut self.ctx, util::into_wasmtime_val(value)).expect(
+		global.set(&mut self.instance.store_mut(), util::into_wasmtime_val(value)).expect(
 			"the value is guaranteed to be of the same value; the global is guaranteed to be mutable; qed",
 		);
 	}
@@ -117,54 +134,21 @@ struct InstanceSnapshotData {
 /// A `WasmModule` implementation using wasmtime to compile the runtime module to machine code
 /// and execute the compiled code.
 pub struct WasmtimeRuntime {
-	module: Arc<wasmtime::Module>,
+	engine: wasmtime::Engine,
+	instance_pre: Arc<wasmtime::InstancePre<StoreData>>,
 	snapshot_data: Option<InstanceSnapshotData>,
 	config: Config,
-	host_functions: Vec<&'static dyn Function>,
-	engine: Engine,
-}
-
-impl WasmtimeRuntime {
-	/// Creates the store respecting the set limits.
-	fn new_store(&self) -> Store {
-		let limits = if let Some(max_memory_pages) = self.config.max_memory_pages {
-			wasmtime::StoreLimitsBuilder::new().memory_pages(max_memory_pages).build()
-		} else {
-			Default::default()
-		};
-
-		let mut store = Store::new(&self.engine, StoreData { limits, host_state: None });
-
-		if self.config.max_memory_pages.is_some() {
-			store.limiter(|s| &mut s.limits);
-		}
-
-		store
-	}
 }
 
 impl WasmModule for WasmtimeRuntime {
 	fn new_instance(&self) -> Result<Box<dyn WasmInstance>> {
-		let mut store = self.new_store();
-
-		// Scan all imports, find the matching host functions, and create stubs that adapt arguments
-		// and results.
-		//
-		// NOTE: Attentive reader may notice that this could've been moved in `WasmModule` creation.
-		//       However, I am not sure if that's a good idea since it would be pushing our luck
-		// further       by assuming that `Store` not only `Send` but also `Sync`.
-		let imports = resolve_imports(
-			&mut store,
-			&self.module,
-			&self.host_functions,
-			self.config.heap_pages,
-			self.config.allow_missing_func_imports,
-		)?;
-
 		let strategy = if let Some(ref snapshot_data) = self.snapshot_data {
-			let instance_wrapper =
-				InstanceWrapper::new(&self.module, &imports, self.config.heap_pages, &mut store)?;
-			let heap_base = instance_wrapper.extract_heap_base(&mut store)?;
+			let mut instance_wrapper = InstanceWrapper::new(
+				&self.engine,
+				&self.instance_pre,
+				self.config.max_memory_size,
+			)?;
+			let heap_base = instance_wrapper.extract_heap_base()?;
 
 			// This function panics if the instance was created from a runtime blob different from
 			// which the mutable globals were collected. Here, it is easy to see that there is only
@@ -172,22 +156,20 @@ impl WasmModule for WasmtimeRuntime {
 			// instance and collecting the mutable globals.
 			let globals_snapshot = GlobalsSnapshot::take(
 				&snapshot_data.mutable_globals,
-				&mut InstanceGlobals { ctx: &mut store, instance: &instance_wrapper },
+				&mut InstanceGlobals { instance: &mut instance_wrapper },
 			);
 
 			Strategy::FastInstanceReuse {
-				instance_wrapper: Rc::new(instance_wrapper),
+				instance_wrapper,
 				globals_snapshot,
 				data_segments_snapshot: snapshot_data.data_segments_snapshot.clone(),
 				heap_base,
-				store,
 			}
 		} else {
 			Strategy::RecreateInstance(InstanceCreator {
-				imports: Arc::new(imports),
-				module: self.module.clone(),
-				store,
-				heap_pages: self.config.heap_pages,
+				engine: self.engine.clone(),
+				instance_pre: self.instance_pre.clone(),
+				max_memory_size: self.config.max_memory_size,
 			})
 		};
 
@@ -201,68 +183,52 @@ pub struct WasmtimeInstance {
 	strategy: Strategy,
 }
 
-// This is safe because `WasmtimeInstance` does not leak reference to `self.imports`
-// and all imports don't reference anything, other than host functions and memory
-unsafe impl Send for WasmtimeInstance {}
-
 impl WasmInstance for WasmtimeInstance {
 	fn call(&mut self, method: InvokeMethod, data: &[u8]) -> Result<Vec<u8>> {
 		match &mut self.strategy {
 			Strategy::FastInstanceReuse {
-				instance_wrapper,
+				ref mut instance_wrapper,
 				globals_snapshot,
 				data_segments_snapshot,
 				heap_base,
-				ref mut store,
 			} => {
-				let entrypoint = instance_wrapper.resolve_entrypoint(method, &mut *store)?;
+				let entrypoint = instance_wrapper.resolve_entrypoint(method)?;
 
 				data_segments_snapshot.apply(|offset, contents| {
-					instance_wrapper.write_memory_from(&mut *store, Pointer::new(offset), contents)
+					util::write_memory_from(
+						instance_wrapper.store_mut(),
+						Pointer::new(offset),
+						contents,
+					)
 				})?;
-				globals_snapshot
-					.apply(&mut InstanceGlobals { ctx: &mut *store, instance: &*instance_wrapper });
+				globals_snapshot.apply(&mut InstanceGlobals { instance: instance_wrapper });
 				let allocator = FreeingBumpHeapAllocator::new(*heap_base);
 
-				let result = perform_call(
-					&mut *store,
-					data,
-					instance_wrapper.clone(),
-					entrypoint,
-					allocator,
-				);
+				let result = perform_call(data, instance_wrapper, entrypoint, allocator);
 
 				// Signal to the OS that we are done with the linear memory and that it can be
 				// reclaimed.
-				instance_wrapper.decommit(&store);
+				instance_wrapper.decommit();
 
 				result
 			},
 			Strategy::RecreateInstance(ref mut instance_creator) => {
-				let instance_wrapper = instance_creator.instantiate()?;
-				let heap_base = instance_wrapper.extract_heap_base(&mut instance_creator.store)?;
-				let entrypoint =
-					instance_wrapper.resolve_entrypoint(method, &mut instance_creator.store)?;
+				let mut instance_wrapper = instance_creator.instantiate()?;
+				let heap_base = instance_wrapper.extract_heap_base()?;
+				let entrypoint = instance_wrapper.resolve_entrypoint(method)?;
 
 				let allocator = FreeingBumpHeapAllocator::new(heap_base);
-				perform_call(
-					&mut instance_creator.store,
-					data,
-					Rc::new(instance_wrapper),
-					entrypoint,
-					allocator,
-				)
+				perform_call(data, &mut instance_wrapper, entrypoint, allocator)
 			},
 		}
 	}
 
 	fn get_global_const(&mut self, name: &str) -> Result<Option<Value>> {
 		match &mut self.strategy {
-			Strategy::FastInstanceReuse { instance_wrapper, ref mut store, .. } =>
-				instance_wrapper.get_global_val(&mut *store, name),
-			Strategy::RecreateInstance(ref mut instance_creator) => instance_creator
-				.instantiate()?
-				.get_global_val(&mut instance_creator.store, name),
+			Strategy::FastInstanceReuse { instance_wrapper, .. } =>
+				instance_wrapper.get_global_val(name),
+			Strategy::RecreateInstance(ref mut instance_creator) =>
+				instance_creator.instantiate()?.get_global_val(name),
 		}
 	}
 
@@ -273,8 +239,8 @@ impl WasmInstance for WasmtimeInstance {
 				// associated with it.
 				None
 			},
-			Strategy::FastInstanceReuse { instance_wrapper, store, .. } =>
-				Some(instance_wrapper.base_ptr(&store)),
+			Strategy::FastInstanceReuse { instance_wrapper, .. } =>
+				Some(instance_wrapper.base_ptr()),
 		}
 	}
 }
@@ -322,6 +288,23 @@ fn common_config(semantics: &Semantics) -> std::result::Result<wasmtime::Config,
 	config.cranelift_opt_level(wasmtime::OptLevel::SpeedAndSize);
 	config.cranelift_nan_canonicalization(semantics.canonicalize_nans);
 
+	let profiler = match std::env::var_os("WASMTIME_PROFILING_STRATEGY") {
+		Some(os_string) if os_string == "jitdump" => wasmtime::ProfilingStrategy::JitDump,
+		None => wasmtime::ProfilingStrategy::None,
+		Some(_) => {
+			// Remember if we have already logged a warning due to an unknown profiling strategy.
+			static UNKNOWN_PROFILING_STRATEGY: AtomicBool = AtomicBool::new(false);
+			// Make sure that the warning will not be relogged regularly.
+			if !UNKNOWN_PROFILING_STRATEGY.swap(true, Ordering::Relaxed) {
+				log::warn!("WASMTIME_PROFILING_STRATEGY is set to unknown value, ignored.");
+			}
+			wasmtime::ProfilingStrategy::None
+		},
+	};
+	config
+		.profiler(profiler)
+		.map_err(|e| WasmError::Instantiation(format!("fail to set profiler: {}", e)))?;
+
 	if let Some(DeterministicStackLimit { native_stack_max, .. }) =
 		semantics.deterministic_stack_limit
 	{
@@ -329,6 +312,8 @@ fn common_config(semantics: &Semantics) -> std::result::Result<wasmtime::Config,
 			.max_wasm_stack(native_stack_max as usize)
 			.map_err(|e| WasmError::Other(format!("cannot set max wasm stack: {}", e)))?;
 	}
+
+	config.parallel_compilation(semantics.parallel_compilation);
 
 	// Be clear and specific about the extensions we support. If an update brings new features
 	// they should be introduced here as well.
@@ -339,6 +324,7 @@ fn common_config(semantics: &Semantics) -> std::result::Result<wasmtime::Config,
 	config.wasm_multi_memory(false);
 	config.wasm_module_linking(false);
 	config.wasm_threads(false);
+	config.wasm_memory64(false);
 
 	Ok(config)
 }
@@ -361,7 +347,7 @@ fn common_config(semantics: &Semantics) -> std::result::Result<wasmtime::Config,
 /// usage in bytes.
 ///
 /// The actual number of bytes consumed by a function is not trivial to compute  without going
-/// through full compilation. Therefore, it's expected that `native_stack_max` is grealy
+/// through full compilation. Therefore, it's expected that `native_stack_max` is greatly
 /// overestimated and thus never reached in practice. The stack overflow check introduced by the
 /// instrumentation and that relies on the logical item count should be reached first.
 ///
@@ -379,7 +365,7 @@ pub struct DeterministicStackLimit {
 	/// It's not specified how much bytes will be consumed by a stack frame for a given wasm
 	/// function after translation into machine code. It is also not quite trivial.
 	///
-	/// Therefore, this number should be choosen conservatively. It must be so large so that it can
+	/// Therefore, this number should be chosen conservatively. It must be so large so that it can
 	/// fit the [`logical_max`](Self::logical_max) logical values on the stack, according to the
 	/// current instrumentation algorithm.
 	///
@@ -389,22 +375,18 @@ pub struct DeterministicStackLimit {
 
 pub struct Semantics {
 	/// Enabling this will lead to some optimization shenanigans that make calling [`WasmInstance`]
-	/// extermely fast.
+	/// extremely fast.
 	///
 	/// Primarily this is achieved by not recreating the instance for each call and performing a
 	/// bare minimum clean up: reapplying the data segments and restoring the values for global
-	/// variables. The vast majority of the linear memory is not restored, meaning that effects
-	/// of previous executions on the same [`WasmInstance`] can be observed there.
-	///
-	/// This is not a problem for a standard substrate runtime execution because it's up to the
-	/// runtime itself to make sure that it doesn't involve any non-determinism.
+	/// variables.
 	///
 	/// Since this feature depends on instrumentation, it can be set only if runtime is
 	/// instantiated using the runtime blob, e.g. using [`create_runtime`].
 	// I.e. if [`CodeSupplyMode::Verbatim`] is used.
 	pub fast_instance_reuse: bool,
 
-	/// Specifiying `Some` will enable deterministic stack height. That is, all executor
+	/// Specifying `Some` will enable deterministic stack height. That is, all executor
 	/// invocations will reach stack overflow at the exactly same point across different wasmtime
 	/// versions and architectures.
 	///
@@ -429,28 +411,34 @@ pub struct Semantics {
 	/// developers. For PVFs, we want to ensure that execution is deterministic though. Therefore,
 	/// for PVF execution this flag is meant to be turned on.
 	pub canonicalize_nans: bool,
+
+	/// Configures wasmtime to use multiple threads for compiling.
+	pub parallel_compilation: bool,
+
+	/// The number of extra WASM pages which will be allocated
+	/// on top of what is requested by the WASM blob itself.
+	pub extra_heap_pages: u64,
 }
 
 pub struct Config {
-	/// The number of wasm pages to be mounted after instantiation.
-	pub heap_pages: u32,
-
-	/// The total number of wasm pages an instance can request.
+	/// The total amount of memory in bytes an instance can request.
 	///
-	/// If specified, the runtime will be able to allocate only that much of wasm memory pages.
-	/// This is the total number and therefore the [`heap_pages`] is accounted for.
+	/// If specified, the runtime will be able to allocate only that much of wasm memory.
+	/// This is the total number and therefore the [`Semantics::extra_heap_pages`] is accounted
+	/// for.
 	///
-	/// That means that the initial number of pages of a linear memory plus the [`heap_pages`]
-	/// should be less or equal to `max_memory_pages`, otherwise the instance won't be created.
+	/// That means that the initial number of pages of a linear memory plus the
+	/// [`Semantics::extra_heap_pages`] multiplied by the wasm page size (64KiB) should be less
+	/// than or equal to `max_memory_size`, otherwise the instance won't be created.
 	///
-	/// Moreover, `memory.grow` will fail (return -1) if the sum of the number of currently mounted
-	/// pages and the number of additional pages exceeds `max_memory_pages`.
+	/// Moreover, `memory.grow` will fail (return -1) if the sum of sizes of currently mounted
+	/// and additional pages exceeds `max_memory_size`.
 	///
 	/// The default is `None`.
-	pub max_memory_pages: Option<u32>,
+	pub max_memory_size: Option<usize>,
 
 	/// The WebAssembly standard requires all imports of an instantiated module to be resolved,
-	/// othewise, the instantiation fails. If this option is set to `true`, then this behavior is
+	/// otherwise, the instantiation fails. If this option is set to `true`, then this behavior is
 	/// overriden and imports that are requested by the module and not provided by the host
 	/// functions will be resolved using stubs. These stubs will trap upon a call.
 	pub allow_missing_func_imports: bool,
@@ -486,13 +474,18 @@ enum CodeSupplyMode<'a> {
 
 /// Create a new `WasmtimeRuntime` given the code. This function performs translation from Wasm to
 /// machine code, which can be computationally heavy.
-pub fn create_runtime(
+///
+/// The `H` generic parameter is used to statically pass a set of host functions which are exposed
+/// to the runtime.
+pub fn create_runtime<H>(
 	blob: RuntimeBlob,
 	config: Config,
-	host_functions: Vec<&'static dyn Function>,
-) -> std::result::Result<WasmtimeRuntime, WasmError> {
+) -> std::result::Result<WasmtimeRuntime, WasmError>
+where
+	H: HostFunctions,
+{
 	// SAFETY: this is safe because it doesn't use `CodeSupplyMode::Artifact`.
-	unsafe { do_create_runtime(CodeSupplyMode::Verbatim { blob }, config, host_functions) }
+	unsafe { do_create_runtime::<H>(CodeSupplyMode::Verbatim { blob }, config) }
 }
 
 /// The same as [`create_runtime`] but takes a precompiled artifact, which makes this function
@@ -506,23 +499,27 @@ pub fn create_runtime(
 ///
 /// It is ok though if the `compiled_artifact` was created by code of another version or with
 /// different configuration flags. In such case the caller will receive an `Err` deterministically.
-pub unsafe fn create_runtime_from_artifact(
+pub unsafe fn create_runtime_from_artifact<H>(
 	compiled_artifact: &[u8],
 	config: Config,
-	host_functions: Vec<&'static dyn Function>,
-) -> std::result::Result<WasmtimeRuntime, WasmError> {
-	do_create_runtime(CodeSupplyMode::Artifact { compiled_artifact }, config, host_functions)
+) -> std::result::Result<WasmtimeRuntime, WasmError>
+where
+	H: HostFunctions,
+{
+	do_create_runtime::<H>(CodeSupplyMode::Artifact { compiled_artifact }, config)
 }
 
 /// # Safety
 ///
 /// This is only unsafe if called with [`CodeSupplyMode::Artifact`]. See
 /// [`create_runtime_from_artifact`] to get more details.
-unsafe fn do_create_runtime(
+unsafe fn do_create_runtime<H>(
 	code_supply_mode: CodeSupplyMode<'_>,
 	config: Config,
-	host_functions: Vec<&'static dyn Function>,
-) -> std::result::Result<WasmtimeRuntime, WasmError> {
+) -> std::result::Result<WasmtimeRuntime, WasmError>
+where
+	H: HostFunctions,
+{
 	// Create the engine, store and finally the module from the given code.
 	let mut wasmtime_config = common_config(&config.semantics)?;
 	if let Some(ref cache_path) = config.cache_path {
@@ -535,27 +532,25 @@ unsafe fn do_create_runtime(
 	}
 
 	let engine = Engine::new(&wasmtime_config)
-		.map_err(|e| WasmError::Other(format!("cannot create the engine for runtime: {}", e)))?;
+		.map_err(|e| WasmError::Other(format!("cannot create the wasmtime engine: {}", e)))?;
 
 	let (module, snapshot_data) = match code_supply_mode {
 		CodeSupplyMode::Verbatim { blob } => {
-			let blob = instrument(blob, &config.semantics)?;
+			let blob = prepare_blob_for_compilation(blob, &config.semantics)?;
+			let serialized_blob = blob.clone().serialize();
+
+			let module = wasmtime::Module::new(&engine, &serialized_blob)
+				.map_err(|e| WasmError::Other(format!("cannot create module: {}", e)))?;
 
 			if config.semantics.fast_instance_reuse {
 				let data_segments_snapshot = DataSegmentsSnapshot::take(&blob).map_err(|e| {
 					WasmError::Other(format!("cannot take data segments snapshot: {}", e))
 				})?;
 				let data_segments_snapshot = Arc::new(data_segments_snapshot);
-
 				let mutable_globals = ExposedMutableGlobalsSet::collect(&blob);
-
-				let module = wasmtime::Module::new(&engine, &blob.serialize())
-					.map_err(|e| WasmError::Other(format!("cannot create module: {}", e)))?;
 
 				(module, Some(InstanceSnapshotData { data_segments_snapshot, mutable_globals }))
 			} else {
-				let module = wasmtime::Module::new(&engine, &blob.serialize())
-					.map_err(|e| WasmError::Other(format!("cannot create module: {}", e)))?;
 				(module, None)
 			}
 		},
@@ -569,10 +564,18 @@ unsafe fn do_create_runtime(
 		},
 	};
 
-	Ok(WasmtimeRuntime { module: Arc::new(module), snapshot_data, config, host_functions, engine })
+	let mut linker = wasmtime::Linker::new(&engine);
+	crate::imports::prepare_imports::<H>(&mut linker, &module, config.allow_missing_func_imports)?;
+
+	let mut store = crate::instance_wrapper::create_store(module.engine(), config.max_memory_size);
+	let instance_pre = linker
+		.instantiate_pre(&mut store, &module)
+		.map_err(|e| WasmError::Other(format!("cannot preinstantiate module: {}", e)))?;
+
+	Ok(WasmtimeRuntime { engine, instance_pre: Arc::new(instance_pre), snapshot_data, config })
 }
 
-fn instrument(
+fn prepare_blob_for_compilation(
 	mut blob: RuntimeBlob,
 	semantics: &Semantics,
 ) -> std::result::Result<RuntimeBlob, WasmError> {
@@ -585,6 +588,19 @@ fn instrument(
 		blob.expose_mutable_globals();
 	}
 
+	// We don't actually need the memory to be imported so we can just convert any memory
+	// import into an export with impunity. This simplifies our code since `wasmtime` will
+	// now automatically take care of creating the memory for us, and it also allows us
+	// to potentially enable `wasmtime`'s instance pooling at a later date. (Imported
+	// memories are ineligible for pooling.)
+	blob.convert_memory_import_into_export()?;
+	blob.add_extra_heap_pages_to_memory_section(
+		semantics
+			.extra_heap_pages
+			.try_into()
+			.map_err(|e| WasmError::Other(format!("invalid `extra_heap_pages`: {}", e)))?,
+	)?;
+
 	Ok(blob)
 }
 
@@ -594,7 +610,7 @@ pub fn prepare_runtime_artifact(
 	blob: RuntimeBlob,
 	semantics: &Semantics,
 ) -> std::result::Result<Vec<u8>, WasmError> {
-	let blob = instrument(blob, semantics)?;
+	let blob = prepare_blob_for_compilation(blob, semantics)?;
 
 	let engine = Engine::new(&common_config(semantics)?)
 		.map_err(|e| WasmError::Other(format!("cannot create the engine: {}", e)))?;
@@ -605,50 +621,51 @@ pub fn prepare_runtime_artifact(
 }
 
 fn perform_call(
-	mut ctx: impl AsContextMut<Data = StoreData>,
 	data: &[u8],
-	instance_wrapper: Rc<InstanceWrapper>,
+	instance_wrapper: &mut InstanceWrapper,
 	entrypoint: EntryPoint,
 	mut allocator: FreeingBumpHeapAllocator,
 ) -> Result<Vec<u8>> {
-	let (data_ptr, data_len) =
-		inject_input_data(&mut ctx, &instance_wrapper, &mut allocator, data)?;
+	let (data_ptr, data_len) = inject_input_data(instance_wrapper, &mut allocator, data)?;
 
-	let host_state = HostState::new(allocator, instance_wrapper.clone());
+	let host_state = HostState::new(allocator);
 
 	// Set the host state before calling into wasm.
-	ctx.as_context_mut().data_mut().host_state = Some(Rc::new(host_state));
+	instance_wrapper.store_mut().data_mut().host_state = Some(host_state);
 
-	let ret = entrypoint.call(&mut ctx, data_ptr, data_len).map(unpack_ptr_and_len);
+	let ret = entrypoint
+		.call(instance_wrapper.store_mut(), data_ptr, data_len)
+		.map(unpack_ptr_and_len);
 
 	// Reset the host state
-	ctx.as_context_mut().data_mut().host_state = None;
+	instance_wrapper.store_mut().data_mut().host_state = None;
 
 	let (output_ptr, output_len) = ret?;
-	let output = extract_output_data(ctx, &instance_wrapper, output_ptr, output_len)?;
+	let output = extract_output_data(instance_wrapper, output_ptr, output_len)?;
 
 	Ok(output)
 }
 
 fn inject_input_data(
-	mut ctx: impl AsContextMut,
-	instance: &InstanceWrapper,
+	instance: &mut InstanceWrapper,
 	allocator: &mut FreeingBumpHeapAllocator,
 	data: &[u8],
 ) -> Result<(Pointer<u8>, WordSize)> {
+	let mut ctx = instance.store_mut();
+	let memory = ctx.data().memory();
+	let memory = memory.data_mut(&mut ctx);
 	let data_len = data.len() as WordSize;
-	let data_ptr = instance.allocate(&mut ctx, allocator, data_len)?;
-	instance.write_memory_from(ctx, data_ptr, data)?;
+	let data_ptr = allocator.allocate(memory, data_len)?;
+	util::write_memory_from(instance.store_mut(), data_ptr, data)?;
 	Ok((data_ptr, data_len))
 }
 
 fn extract_output_data(
-	ctx: impl AsContext,
 	instance: &InstanceWrapper,
 	output_ptr: u32,
 	output_len: u32,
 ) -> Result<Vec<u8>> {
 	let mut output = vec![0; output_len as usize];
-	instance.read_memory_into(ctx, Pointer::new(output_ptr), &mut output)?;
+	util::read_memory_into(instance.store(), Pointer::new(output_ptr), &mut output)?;
 	Ok(output)
 }

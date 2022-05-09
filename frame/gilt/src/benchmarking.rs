@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2021-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,7 +20,7 @@
 #![cfg(feature = "runtime-benchmarks")]
 
 use super::*;
-use frame_benchmarking::{benchmarks, impl_benchmark_test_suite, whitelisted_caller};
+use frame_benchmarking::{benchmarks, whitelisted_caller};
 use frame_support::{
 	dispatch::UnfilteredDispatchable,
 	traits::{Currency, EnsureOrigin, Get},
@@ -126,6 +126,6 @@ benchmarks! {
 			.dispatch_bypass_filter(T::AdminOrigin::successful_origin())?;
 
 	}: { Gilt::<T>::pursue_target(q) }
-}
 
-impl_benchmark_test_suite!(Gilt, crate::mock::new_test_ext(), crate::mock::Test);
+	impl_benchmark_test_suite!(Gilt, crate::mock::new_test_ext(), crate::mock::Test);
+}

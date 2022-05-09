@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,8 +23,11 @@ use super::{
 };
 use crate::dispatch::{DispatchError, DispatchResult};
 use sp_runtime::traits::Saturating;
+use sp_std::vec::Vec;
 
+pub mod approvals;
 mod balanced;
+pub mod metadata;
 pub use balanced::{Balanced, Unbalanced};
 mod imbalance;
 pub use imbalance::{CreditOf, DebtOf, HandleImbalanceDrop, Imbalance};
@@ -63,6 +66,18 @@ pub trait Inspect<AccountId> {
 		who: &AccountId,
 		amount: Self::Balance,
 	) -> WithdrawConsequence<Self::Balance>;
+}
+
+/// Trait for reading metadata from a fungible asset.
+pub trait InspectMetadata<AccountId>: Inspect<AccountId> {
+	/// Return the name of an asset.
+	fn name(asset: &Self::AssetId) -> Vec<u8>;
+
+	/// Return the symbol of an asset.
+	fn symbol(asset: &Self::AssetId) -> Vec<u8>;
+
+	/// Return the decimals of an asset.
+	fn decimals(asset: &Self::AssetId) -> u8;
 }
 
 /// Trait for providing a set of named fungible assets which can be created and destroyed.

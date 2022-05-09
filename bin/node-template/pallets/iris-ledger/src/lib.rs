@@ -104,10 +104,10 @@ pub mod pallet {
         Unlocked(T::AccountId),
 	}
 
-	#[pallet::error]
-	pub enum Error<T> {
+	// #[pallet::error]
+	// pub enum Error<T> {
 
-	}
+	// }
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {

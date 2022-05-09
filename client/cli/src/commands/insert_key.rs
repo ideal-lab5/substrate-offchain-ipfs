@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2020-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2020-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,40 +18,40 @@
 //! Implementation of the `insert` subcommand
 
 use crate::{
-	utils, with_crypto_scheme, CryptoSchemeFlag, Error, KeystoreParams, SharedParams, SubstrateCli,
+	utils, with_crypto_scheme, CryptoScheme, Error, KeystoreParams, SharedParams, SubstrateCli,
 };
+use clap::Parser;
 use sc_keystore::LocalKeystore;
 use sc_service::config::{BasePath, KeystoreConfig};
 use sp_core::crypto::{KeyTypeId, SecretString};
 use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
-use std::{convert::TryFrom, sync::Arc};
-use structopt::StructOpt;
+use std::sync::Arc;
 
 /// The `insert` command
-#[derive(Debug, StructOpt, Clone)]
-#[structopt(name = "insert", about = "Insert a key to the keystore of a node.")]
+#[derive(Debug, Clone, Parser)]
+#[clap(name = "insert", about = "Insert a key to the keystore of a node.")]
 pub struct InsertKeyCmd {
 	/// The secret key URI.
 	/// If the value is a file, the file content is used as URI.
 	/// If not given, you will be prompted for the URI.
-	#[structopt(long)]
+	#[clap(long)]
 	suri: Option<String>,
 
 	/// Key type, examples: "gran", or "imon"
-	#[structopt(long)]
+	#[clap(long)]
 	key_type: String,
 
 	#[allow(missing_docs)]
-	#[structopt(flatten)]
+	#[clap(flatten)]
 	pub shared_params: SharedParams,
 
 	#[allow(missing_docs)]
-	#[structopt(flatten)]
+	#[clap(flatten)]
 	pub keystore_params: KeystoreParams,
 
-	#[allow(missing_docs)]
-	#[structopt(flatten)]
-	pub crypto_scheme: CryptoSchemeFlag,
+	/// The cryptography scheme that should be used to generate the key out of the given URI.
+	#[clap(long, value_name = "SCHEME", arg_enum, ignore_case = true)]
+	pub scheme: CryptoScheme,
 }
 
 impl InsertKeyCmd {
@@ -68,10 +68,7 @@ impl InsertKeyCmd {
 
 		let (keystore, public) = match self.keystore_params.keystore_config(&config_dir)? {
 			(_, KeystoreConfig::Path { path, password }) => {
-				let public = with_crypto_scheme!(
-					self.crypto_scheme.scheme,
-					to_vec(&suri, password.clone())
-				)?;
+				let public = with_crypto_scheme!(self.scheme, to_vec(&suri, password.clone()))?;
 				let keystore: SyncCryptoStorePtr = Arc::new(LocalKeystore::open(path, password)?);
 				(keystore, public)
 			},
@@ -97,8 +94,7 @@ fn to_vec<P: sp_core::Pair>(uri: &str, pass: Option<SecretString>) -> Result<Vec
 mod tests {
 	use super::*;
 	use sc_service::{ChainSpec, ChainType, GenericChainSpec, NoExtension};
-	use sp_core::{sr25519::Pair, Pair as _, Public};
-	use structopt::StructOpt;
+	use sp_core::{sr25519::Pair, ByteArray, Pair as _};
 	use tempfile::TempDir;
 
 	struct Cli;
@@ -142,6 +138,7 @@ mod tests {
 				None,
 				None,
 				None,
+				None,
 				NoExtension::None,
 			)))
 		}
@@ -153,7 +150,7 @@ mod tests {
 		let path_str = format!("{}", path.path().display());
 		let (key, uri, _) = Pair::generate_with_phrase(None);
 
-		let inspect = InsertKeyCmd::from_iter(&[
+		let inspect = InsertKeyCmd::parse_from(&[
 			"insert-key",
 			"-d",
 			&path_str,
@@ -161,6 +158,7 @@ mod tests {
 			"test",
 			"--suri",
 			&uri,
+			"--scheme=sr25519",
 		]);
 		assert!(inspect.run(&Cli).is_ok());
 

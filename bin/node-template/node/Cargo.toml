@@ -1,14 +1,14 @@
 [package]
 name = "node-template"
-version = "3.0.0"
-authors = ["Substrate DevHub <https://github.com/substrate-developer-hub>"]
+version = "4.0.0-dev"
 description = "A fresh FRAME-based Substrate node, ready for hacking."
-edition = "2018"
+authors = ["Substrate DevHub <https://github.com/substrate-developer-hub>"]
+homepage = "https://substrate.io/"
+edition = "2021"
 license = "Unlicense"
-build = "build.rs"
-homepage = "https://substrate.dev"
-repository = "https://github.com/substrate-developer-hub/substrate-node-template/"
 publish = false
+repository = "https://github.com/substrate-developer-hub/substrate-node-template/"
+build = "build.rs"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -17,10 +17,10 @@ targets = ["x86_64-unknown-linux-gnu"]
 name = "node-template"
 
 [dependencies]
-structopt = "0.3.8"
+clap = { version = "3.1.6", features = ["derive"] }
 
 sc-cli = { version = "0.10.0-dev", path = "../../../client/cli", features = ["wasmtime"] }
-sp-core = { version = "4.0.0-dev", path = "../../../primitives/core" }
+sp-core = { version = "6.0.0", path = "../../../primitives/core" }
 sc-executor = { version = "0.10.0-dev", path = "../../../client/executor", features = ["wasmtime"] }
 sc-service = { version = "0.10.0-dev", path = "../../../client/service", features = ["wasmtime"] }
 sc-telemetry = { version = "4.0.0-dev", path = "../../../client/telemetry" }
@@ -34,9 +34,13 @@ sc-consensus = { version = "0.10.0-dev", path = "../../../client/consensus/commo
 sc-finality-grandpa = { version = "0.10.0-dev", path = "../../../client/finality-grandpa" }
 sp-finality-grandpa = { version = "4.0.0-dev", path = "../../../primitives/finality-grandpa" }
 sc-client-api = { version = "4.0.0-dev", path = "../../../client/api" }
-sp-runtime = { version = "4.0.0-dev", path = "../../../primitives/runtime" }
+sp-runtime = { version = "6.0.0", path = "../../../primitives/runtime" }
 sp-timestamp = { version = "4.0.0-dev", path = "../../../primitives/timestamp" }
-sp-keystore = { version = "0.10.0-dev", path = "../../../primitives/keystore" }
+sp-inherents = { version = "4.0.0-dev", path = "../../../primitives/inherents" }
+sp-keyring = { version = "6.0.0", path = "../../../primitives/keyring" }
+frame-system = { version = "4.0.0-dev", path = "../../../frame/system" }
+pallet-transaction-payment = { version = "4.0.0-dev", default-features = false, path = "../../../frame/transaction-payment" }
+sp-keystore = { version = "0.12.0", path = "../../../primitives/keystore" }
 pallet-im-online = { version = "4.0.0-dev", default-features = false, path = "../../../frame/im-online" }
 
 # These dependencies are used for the node template's RPCs
@@ -57,13 +61,18 @@ pallet-contracts-rpc = { version = "4.0.0-dev", path = "../../../frame/contracts
 frame-benchmarking = { version = "4.0.0-dev", path = "../../../frame/benchmarking" }
 frame-benchmarking-cli = { version = "4.0.0-dev", path = "../../../utils/frame/benchmarking-cli" }
 
-node-template-runtime = { version = "3.0.0", path = "../runtime" }
+# Local Dependencies
+node-template-runtime = { version = "4.0.0-dev", path = "../runtime" }
+
+# CLI-specific dependencies
+try-runtime-cli = { version = "0.10.0-dev", optional = true, path = "../../../utils/frame/try-runtime/cli" }
 
 [build-dependencies]
 substrate-build-script-utils = { version = "3.0.0", path = "../../../utils/build-script-utils" }
 
 [features]
 default = []
-runtime-benchmarks = [
-	"node-template-runtime/runtime-benchmarks",
-]
+runtime-benchmarks = ["node-template-runtime/runtime-benchmarks"]
+# Enable features that allow the runtime to be tried and debugged. Name might be subject to change
+# in the near future.
+try-runtime = ["node-template-runtime/try-runtime", "try-runtime-cli"]

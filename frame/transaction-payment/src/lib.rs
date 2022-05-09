@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -47,13 +47,13 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use codec::{Decode, Encode};
+use codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 
 use sp_runtime::{
 	traits::{
-		Convert, DispatchInfoOf, Dispatchable, PostDispatchInfoOf, SaturatedConversion, Saturating,
-		SignedExtension, Zero,
+		Convert, DispatchInfoOf, Dispatchable, One, PostDispatchInfoOf, SaturatedConversion,
+		Saturating, SignedExtension, Zero,
 	},
 	transaction_validity::{
 		TransactionPriority, TransactionValidity, TransactionValidityError, ValidTransaction,
@@ -127,7 +127,7 @@ type BalanceOf<T> = <<T as Config>::OnChargeTransaction as OnChargeTransaction<T
 /// Meaning that fees can change by around ~23% per day, given extreme congestion.
 ///
 /// More info can be found at:
-/// <https://w3f-research.readthedocs.io/en/latest/polkadot/Token%20Economics.html>
+/// <https://research.web3.foundation/en/latest/polkadot/overview/2-token-economics.html>
 pub struct TargetedFeeAdjustment<T, S, V, M>(sp_std::marker::PhantomData<(T, S, V, M)>);
 
 /// Something that can convert the current multiplier to the next one.
@@ -226,7 +226,7 @@ where
 }
 
 /// Storage releases of the pallet.
-#[derive(Encode, Decode, Clone, Copy, PartialEq, Eq, RuntimeDebug, TypeInfo)]
+#[derive(Encode, Decode, Clone, Copy, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 enum Releases {
 	/// Original version of the pallet.
 	V1Ancient,
@@ -260,12 +260,35 @@ pub mod pallet {
 		/// might be refunded. In the end the fees can be deposited.
 		type OnChargeTransaction: OnChargeTransaction<Self>;
 
-		/// The fee to be paid for making a transaction; the per-byte portion.
+		/// A fee mulitplier for `Operational` extrinsics to compute "virtual tip" to boost their
+		/// `priority`
+		///
+		/// This value is multipled by the `final_fee` to obtain a "virtual tip" that is later
+		/// added to a tip component in regular `priority` calculations.
+		/// It means that a `Normal` transaction can front-run a similarly-sized `Operational`
+		/// extrinsic (with no tip), by including a tip value greater than the virtual tip.
+		///
+		/// ```rust,ignore
+		/// // For `Normal`
+		/// let priority = priority_calc(tip);
+		///
+		/// // For `Operational`
+		/// let virtual_tip = (inclusion_fee + tip) * OperationalFeeMultiplier;
+		/// let priority = priority_calc(tip + virtual_tip);
+		/// ```
+		///
+		/// Note that since we use `final_fee` the multiplier applies also to the regular `tip`
+		/// sent with the transaction. So, not only does the transaction get a priority bump based
+		/// on the `inclusion_fee`, but we also amplify the impact of tips applied to `Operational`
+		/// transactions.
 		#[pallet::constant]
-		type TransactionByteFee: Get<BalanceOf<Self>>;
+		type OperationalFeeMultiplier: Get<u8>;
 
 		/// Convert a weight value into a deductible fee based on the currency type.
 		type WeightToFee: WeightToFeePolynomial<Balance = BalanceOf<Self>>;
+
+		/// Convert a length value into a deductible fee based on the currency type.
+		type LengthToFee: WeightToFeePolynomial<Balance = BalanceOf<Self>>;
 
 		/// Update the multiplier of the next block, based on the previous block's weight.
 		type FeeMultiplierUpdate: MultiplierUpdate;
@@ -273,11 +296,16 @@ pub mod pallet {
 
 	#[pallet::extra_constants]
 	impl<T: Config> Pallet<T> {
-		// TODO: rename to snake case after https://github.com/paritytech/substrate/issues/8826 fixed.
-		#[allow(non_snake_case)]
+		#[pallet::constant_name(WeightToFee)]
 		/// The polynomial that is applied in order to derive fee from weight.
-		fn WeightToFee() -> Vec<WeightToFeeCoefficient<BalanceOf<T>>> {
+		fn weight_to_fee_polynomial() -> Vec<WeightToFeeCoefficient<BalanceOf<T>>> {
 			T::WeightToFee::polynomial().to_vec()
+		}
+
+		/// The polynomial that is applied in order to derive fee from length.
+		#[pallet::constant_name(LengthToFee)]
+		fn length_to_fee_polynomial() -> Vec<WeightToFeeCoefficient<BalanceOf<T>>> {
+			T::LengthToFee::polynomial().to_vec()
 		}
 	}
 
@@ -323,10 +351,9 @@ pub mod pallet {
 			// given weight == u64, we build multipliers from `diff` of two weight values, which can
 			// at most be maximum block weight. Make sure that this can fit in a multiplier without
 			// loss.
-			use sp_std::convert::TryInto;
 			assert!(
 				<Multiplier as sp_runtime::traits::Bounded>::max_value() >=
-					Multiplier::checked_from_integer(
+					Multiplier::checked_from_integer::<u128>(
 						T::BlockWeights::get().max_block.try_into().unwrap()
 					)
 					.unwrap(),
@@ -379,7 +406,7 @@ where
 	///
 	/// All dispatchables must be annotated with weight and will have some fee info. This function
 	/// always returns.
-	pub fn query_info<Extrinsic: GetDispatchInfo>(
+	pub fn query_info<Extrinsic: sp_runtime::traits::Extrinsic + GetDispatchInfo>(
 		unchecked_extrinsic: Extrinsic,
 		len: u32,
 	) -> RuntimeDispatchInfo<BalanceOf<T>>
@@ -393,14 +420,20 @@ where
 		// a very very little potential gain in the future.
 		let dispatch_info = <Extrinsic as GetDispatchInfo>::get_dispatch_info(&unchecked_extrinsic);
 
-		let partial_fee = Self::compute_fee(len, &dispatch_info, 0u32.into());
+		let partial_fee = if unchecked_extrinsic.is_signed().unwrap_or(false) {
+			Self::compute_fee(len, &dispatch_info, 0u32.into())
+		} else {
+			// Unsigned extrinsics have no partial fee.
+			0u32.into()
+		};
+
 		let DispatchInfo { weight, class, .. } = dispatch_info;
 
 		RuntimeDispatchInfo { weight, class, partial_fee }
 	}
 
 	/// Query the detailed fee of a given `call`.
-	pub fn query_fee_details<Extrinsic: GetDispatchInfo>(
+	pub fn query_fee_details<Extrinsic: sp_runtime::traits::Extrinsic + GetDispatchInfo>(
 		unchecked_extrinsic: Extrinsic,
 		len: u32,
 	) -> FeeDetails<BalanceOf<T>>
@@ -408,7 +441,15 @@ where
 		T::Call: Dispatchable<Info = DispatchInfo>,
 	{
 		let dispatch_info = <Extrinsic as GetDispatchInfo>::get_dispatch_info(&unchecked_extrinsic);
-		Self::compute_fee_details(len, &dispatch_info, 0u32.into())
+
+		let tip = 0u32.into();
+
+		if unchecked_extrinsic.is_signed().unwrap_or(false) {
+			Self::compute_fee_details(len, &dispatch_info, tip)
+		} else {
+			// Unsigned extrinsics have no inclusion fee.
+			FeeDetails { inclusion_fee: None, tip }
+		}
 	}
 
 	/// Compute the final fee value for a particular transaction.
@@ -474,30 +515,27 @@ where
 		class: DispatchClass,
 	) -> FeeDetails<BalanceOf<T>> {
 		if pays_fee == Pays::Yes {
-			let len = <BalanceOf<T>>::from(len);
-			let per_byte = T::TransactionByteFee::get();
-
-			// length fee. this is not adjusted.
-			let fixed_len_fee = per_byte.saturating_mul(len);
-
 			// the adjustable part of the fee.
 			let unadjusted_weight_fee = Self::weight_to_fee(weight);
 			let multiplier = Self::next_fee_multiplier();
 			// final adjusted weight fee.
 			let adjusted_weight_fee = multiplier.saturating_mul_int(unadjusted_weight_fee);
 
+			// length fee. this is adjusted via `LengthToFee`.
+			let len_fee = Self::length_to_fee(len);
+
 			let base_fee = Self::weight_to_fee(T::BlockWeights::get().get(class).base_extrinsic);
 			FeeDetails {
-				inclusion_fee: Some(InclusionFee {
-					base_fee,
-					len_fee: fixed_len_fee,
-					adjusted_weight_fee,
-				}),
+				inclusion_fee: Some(InclusionFee { base_fee, len_fee, adjusted_weight_fee }),
 				tip,
 			}
 		} else {
 			FeeDetails { inclusion_fee: None, tip }
 		}
+	}
+
+	fn length_to_fee(length: u32) -> BalanceOf<T> {
+		T::LengthToFee::calc(&(length as Weight))
 	}
 
 	fn weight_to_fee(weight: Weight) -> BalanceOf<T> {
@@ -525,6 +563,14 @@ where
 
 /// Require the transactor pay for themselves and maybe include a tip to gain additional priority
 /// in the queue.
+///
+/// # Transaction Validity
+///
+/// This extension sets the `priority` field of `TransactionValidity` depending on the amount
+/// of tip being paid per weight unit.
+///
+/// Operational transactions will receive an additional priority bump, so that they are normally
+/// considered before regular transactions.
 #[derive(Encode, Decode, Clone, Eq, PartialEq, TypeInfo)]
 #[scale_info(skip_type_params(T))]
 pub struct ChargeTransactionPayment<T: Config>(#[codec(compact)] BalanceOf<T>);
@@ -566,27 +612,73 @@ where
 		.map(|i| (fee, i))
 	}
 
-	/// Get an appropriate priority for a transaction with the given length and info.
+	/// Get an appropriate priority for a transaction with the given `DispatchInfo`, encoded length
+	/// and user-included tip.
 	///
-	/// This will try and optimise the `fee/weight` `fee/length`, whichever is consuming more of the
-	/// maximum corresponding limit.
+	/// The priority is based on the amount of `tip` the user is willing to pay per unit of either
+	/// `weight` or `length`, depending which one is more limitting. For `Operational` extrinsics
+	/// we add a "virtual tip" to the calculations.
 	///
-	/// For example, if a transaction consumed 1/4th of the block length and half of the weight, its
-	/// final priority is `fee * min(2, 4) = fee * 2`. If it consumed `1/4th` of the block length
-	/// and the entire block weight `(1/1)`, its priority is `fee * min(1, 4) = fee * 1`. This means
-	///  that the transaction which consumes more resources (either length or weight) with the same
-	/// `fee` ends up having lower priority.
-	fn get_priority(
-		len: usize,
+	/// The formula should simply be `tip / bounded_{weight|length}`, but since we are using
+	/// integer division, we have no guarantees it's going to give results in any reasonable
+	/// range (might simply end up being zero). Hence we use a scaling factor:
+	/// `tip * (max_block_{weight|length} / bounded_{weight|length})`, since given current
+	/// state of-the-art blockchains, number of per-block transactions is expected to be in a
+	/// range reasonable enough to not saturate the `Balance` type while multiplying by the tip.
+	pub fn get_priority(
 		info: &DispatchInfoOf<T::Call>,
+		len: usize,
+		tip: BalanceOf<T>,
 		final_fee: BalanceOf<T>,
 	) -> TransactionPriority {
-		let weight_saturation = T::BlockWeights::get().max_block / info.weight.max(1);
-		let max_block_length = *T::BlockLength::get().max.get(DispatchClass::Normal);
-		let len_saturation = max_block_length as u64 / (len as u64).max(1);
-		let coefficient: BalanceOf<T> =
-			weight_saturation.min(len_saturation).saturated_into::<BalanceOf<T>>();
-		final_fee.saturating_mul(coefficient).saturated_into::<TransactionPriority>()
+		// Calculate how many such extrinsics we could fit into an empty block and take
+		// the limitting factor.
+		let max_block_weight = T::BlockWeights::get().max_block;
+		let max_block_length = *T::BlockLength::get().max.get(info.class) as u64;
+
+		let bounded_weight = info.weight.max(1).min(max_block_weight);
+		let bounded_length = (len as u64).max(1).min(max_block_length);
+
+		let max_tx_per_block_weight = max_block_weight / bounded_weight;
+		let max_tx_per_block_length = max_block_length / bounded_length;
+		// Given our current knowledge this value is going to be in a reasonable range - i.e.
+		// less than 10^9 (2^30), so multiplying by the `tip` value is unlikely to overflow the
+		// balance type. We still use saturating ops obviously, but the point is to end up with some
+		// `priority` distribution instead of having all transactions saturate the priority.
+		let max_tx_per_block = max_tx_per_block_length
+			.min(max_tx_per_block_weight)
+			.saturated_into::<BalanceOf<T>>();
+		let max_reward = |val: BalanceOf<T>| val.saturating_mul(max_tx_per_block);
+
+		// To distribute no-tip transactions a little bit, we increase the tip value by one.
+		// This means that given two transactions without a tip, smaller one will be preferred.
+		let tip = tip.saturating_add(One::one());
+		let scaled_tip = max_reward(tip);
+
+		match info.class {
+			DispatchClass::Normal => {
+				// For normal class we simply take the `tip_per_weight`.
+				scaled_tip
+			},
+			DispatchClass::Mandatory => {
+				// Mandatory extrinsics should be prohibited (e.g. by the [`CheckWeight`]
+				// extensions), but just to be safe let's return the same priority as `Normal` here.
+				scaled_tip
+			},
+			DispatchClass::Operational => {
+				// A "virtual tip" value added to an `Operational` extrinsic.
+				// This value should be kept high enough to allow `Operational` extrinsics
+				// to get in even during congestion period, but at the same time low
+				// enough to prevent a possible spam attack by sending invalid operational
+				// extrinsics which push away regular transactions from the pool.
+				let fee_multiplier = T::OperationalFeeMultiplier::get().saturated_into();
+				let virtual_tip = final_fee.saturating_mul(fee_multiplier);
+				let scaled_virtual_tip = max_reward(virtual_tip);
+
+				scaled_tip.saturating_add(scaled_virtual_tip)
+			},
+		}
+		.saturated_into::<TransactionPriority>()
 	}
 }
 
@@ -613,7 +705,7 @@ where
 	type Pre = (
 		// tip
 		BalanceOf<T>,
-		// who paid the fee
+		// who paid the fee - this is an option to allow for a Default impl.
 		Self::AccountId,
 		// imbalance resulting from withdrawing the fee
 		<<T as Config>::OnChargeTransaction as OnChargeTransaction<T>>::LiquidityInfo,
@@ -629,8 +721,12 @@ where
 		info: &DispatchInfoOf<Self::Call>,
 		len: usize,
 	) -> TransactionValidity {
-		let (fee, _) = self.withdraw_fee(who, call, info, len)?;
-		Ok(ValidTransaction { priority: Self::get_priority(len, info, fee), ..Default::default() })
+		let (final_fee, _) = self.withdraw_fee(who, call, info, len)?;
+		let tip = self.0;
+		Ok(ValidTransaction {
+			priority: Self::get_priority(info, len, tip, final_fee),
+			..Default::default()
+		})
 	}
 
 	fn pre_dispatch(
@@ -645,17 +741,18 @@ where
 	}
 
 	fn post_dispatch(
-		pre: Self::Pre,
+		maybe_pre: Option<Self::Pre>,
 		info: &DispatchInfoOf<Self::Call>,
 		post_info: &PostDispatchInfoOf<Self::Call>,
 		len: usize,
 		_result: &DispatchResult,
 	) -> Result<(), TransactionValidityError> {
-		let (tip, who, imbalance) = pre;
-		let actual_fee = Pallet::<T>::compute_actual_fee(len as u32, info, post_info, tip);
-		T::OnChargeTransaction::correct_and_deposit_fee(
-			&who, info, post_info, actual_fee, tip, imbalance,
-		)?;
+		if let Some((tip, who, imbalance)) = maybe_pre {
+			let actual_fee = Pallet::<T>::compute_actual_fee(len as u32, info, post_info, tip);
+			T::OnChargeTransaction::correct_and_deposit_fee(
+				&who, info, post_info, actual_fee, tip, imbalance,
+			)?;
+		}
 		Ok(())
 	}
 }
@@ -693,7 +790,7 @@ mod tests {
 
 	use frame_support::{
 		assert_noop, assert_ok, parameter_types,
-		traits::{Currency, Imbalance, OnUnbalanced},
+		traits::{ConstU32, ConstU64, Currency, Imbalance, OnUnbalanced},
 		weights::{
 			DispatchClass, DispatchInfo, GetDispatchInfo, PostDispatchInfo, Weight,
 			WeightToFeeCoefficient, WeightToFeeCoefficients, WeightToFeePolynomial,
@@ -740,9 +837,9 @@ mod tests {
 	}
 
 	parameter_types! {
-		pub const BlockHashCount: u64 = 250;
-		pub static TransactionByteFee: u64 = 1;
 		pub static WeightToFee: u64 = 1;
+		pub static TransactionByteFee: u64 = 1;
+		pub static OperationalFeeMultiplier: u8 = 5;
 	}
 
 	impl frame_system::Config for Runtime {
@@ -760,7 +857,7 @@ mod tests {
 		type Lookup = IdentityLookup<Self::AccountId>;
 		type Header = Header;
 		type Event = Event;
-		type BlockHashCount = BlockHashCount;
+		type BlockHashCount = ConstU64<250>;
 		type Version = ();
 		type PalletInfo = PalletInfo;
 		type AccountData = pallet_balances::AccountData<u64>;
@@ -769,17 +866,14 @@ mod tests {
 		type SystemWeightInfo = ();
 		type SS58Prefix = ();
 		type OnSetCode = ();
-	}
-
-	parameter_types! {
-		pub const ExistentialDeposit: u64 = 1;
+		type MaxConsumers = ConstU32<16>;
 	}
 
 	impl pallet_balances::Config for Runtime {
 		type Balance = u64;
 		type Event = Event;
 		type DustRemoval = ();
-		type ExistentialDeposit = ExistentialDeposit;
+		type ExistentialDeposit = ConstU64<1>;
 		type AccountStore = System;
 		type MaxLocks = ();
 		type MaxReserves = ();
@@ -795,6 +889,19 @@ mod tests {
 				degree: 1,
 				coeff_frac: Perbill::zero(),
 				coeff_integer: WEIGHT_TO_FEE.with(|v| *v.borrow()),
+				negative: false,
+			}]
+		}
+	}
+
+	impl WeightToFeePolynomial for TransactionByteFee {
+		type Balance = u64;
+
+		fn polynomial() -> WeightToFeeCoefficients<Self::Balance> {
+			smallvec![WeightToFeeCoefficient {
+				degree: 1,
+				coeff_frac: Perbill::zero(),
+				coeff_integer: TRANSACTION_BYTE_FEE.with(|v| *v.borrow()),
 				negative: false,
 			}]
 		}
@@ -821,8 +928,9 @@ mod tests {
 
 	impl Config for Runtime {
 		type OnChargeTransaction = CurrencyAdapter<Balances, DealWithFees>;
-		type TransactionByteFee = TransactionByteFee;
+		type OperationalFeeMultiplier = OperationalFeeMultiplier;
 		type WeightToFee = WeightToFee;
+		type LengthToFee = TransactionByteFee;
 		type FeeMultiplierUpdate = ();
 	}
 
@@ -916,7 +1024,7 @@ mod tests {
 				assert_eq!(Balances::free_balance(1), 100 - 5 - 5 - 10);
 
 				assert_ok!(ChargeTransactionPayment::<Runtime>::post_dispatch(
-					pre,
+					Some(pre),
 					&info_from_weight(5),
 					&default_post_info(),
 					len,
@@ -934,7 +1042,7 @@ mod tests {
 				assert_eq!(Balances::free_balance(2), 200 - 5 - 10 - 100 - 5);
 
 				assert_ok!(ChargeTransactionPayment::<Runtime>::post_dispatch(
-					pre,
+					Some(pre),
 					&info_from_weight(100),
 					&post_info_from_weight(50),
 					len,
@@ -963,7 +1071,7 @@ mod tests {
 				assert_eq!(Balances::free_balance(2), 200 - 5 - 10 - 150 - 5);
 
 				assert_ok!(ChargeTransactionPayment::<Runtime>::post_dispatch(
-					pre,
+					Some(pre),
 					&info_from_weight(100),
 					&post_info_from_weight(50),
 					len,
@@ -1057,20 +1165,24 @@ mod tests {
 	}
 
 	#[test]
-	fn query_info_works() {
+	fn query_info_and_fee_details_works() {
 		let call = Call::Balances(BalancesCall::transfer { dest: 2, value: 69 });
 		let origin = 111111;
 		let extra = ();
-		let xt = TestXt::new(call, Some((origin, extra)));
+		let xt = TestXt::new(call.clone(), Some((origin, extra)));
 		let info = xt.get_dispatch_info();
 		let ext = xt.encode();
 		let len = ext.len() as u32;
+
+		let unsigned_xt = TestXt::<_, ()>::new(call, None);
+		let unsigned_xt_info = unsigned_xt.get_dispatch_info();
+
 		ExtBuilder::default().base_weight(5).weight_fee(2).build().execute_with(|| {
 			// all fees should be x1.5
 			<NextFeeMultiplier<Runtime>>::put(Multiplier::saturating_from_rational(3, 2));
 
 			assert_eq!(
-				TransactionPayment::query_info(xt, len),
+				TransactionPayment::query_info(xt.clone(), len),
 				RuntimeDispatchInfo {
 					weight: info.weight,
 					class: info.class,
@@ -1078,6 +1190,33 @@ mod tests {
 						+ len as u64  /* len * 1 */
 						+ info.weight.min(BlockWeights::get().max_block) as u64 * 2 * 3 / 2 /* weight */
 				},
+			);
+
+			assert_eq!(
+				TransactionPayment::query_info(unsigned_xt.clone(), len),
+				RuntimeDispatchInfo {
+					weight: unsigned_xt_info.weight,
+					class: unsigned_xt_info.class,
+					partial_fee: 0,
+				},
+			);
+
+			assert_eq!(
+				TransactionPayment::query_fee_details(xt, len),
+				FeeDetails {
+					inclusion_fee: Some(InclusionFee {
+						base_fee: 5 * 2,
+						len_fee: len as u64,
+						adjusted_weight_fee: info.weight.min(BlockWeights::get().max_block) as u64 *
+							2 * 3 / 2
+					}),
+					tip: 0,
+				},
+			);
+
+			assert_eq!(
+				TransactionPayment::query_fee_details(unsigned_xt, len),
+				FeeDetails { inclusion_fee: None, tip: 0 },
 			);
 		});
 	}
@@ -1227,7 +1366,7 @@ mod tests {
 				assert_eq!(Balances::free_balance(2), 0);
 
 				assert_ok!(ChargeTransactionPayment::<Runtime>::post_dispatch(
-					pre,
+					Some(pre),
 					&info_from_weight(100),
 					&post_info_from_weight(50),
 					len,
@@ -1235,11 +1374,15 @@ mod tests {
 				));
 				assert_eq!(Balances::free_balance(2), 0);
 				// Transfer Event
-				System::assert_has_event(Event::Balances(pallet_balances::Event::Transfer(
-					2, 3, 80,
-				)));
+				System::assert_has_event(Event::Balances(pallet_balances::Event::Transfer {
+					from: 2,
+					to: 3,
+					amount: 80,
+				}));
 				// Killed Event
-				System::assert_has_event(Event::System(system::Event::KilledAccount(2)));
+				System::assert_has_event(Event::System(system::Event::KilledAccount {
+					account: 2,
+				}));
 			});
 	}
 
@@ -1257,7 +1400,7 @@ mod tests {
 				assert_eq!(Balances::free_balance(2), 200 - 5 - 10 - 100 - 5);
 
 				assert_ok!(ChargeTransactionPayment::<Runtime>::post_dispatch(
-					pre,
+					Some(pre),
 					&info_from_weight(100),
 					&post_info_from_weight(101),
 					len,
@@ -1285,7 +1428,7 @@ mod tests {
 					.unwrap();
 				assert_eq!(Balances::total_balance(&user), 0);
 				assert_ok!(ChargeTransactionPayment::<Runtime>::post_dispatch(
-					pre,
+					Some(pre),
 					&dispatch_info,
 					&default_post_info(),
 					len,
@@ -1317,7 +1460,7 @@ mod tests {
 					.unwrap();
 
 				ChargeTransactionPayment::<Runtime>::post_dispatch(
-					pre,
+					Some(pre),
 					&info,
 					&post_info,
 					len,
@@ -1333,6 +1476,119 @@ mod tests {
 				assert_eq!(actual_fee, 7 + 10 + (33 * 5 / 4) + 5);
 				assert_eq!(refund_based_fee, actual_fee);
 			});
+	}
+
+	#[test]
+	fn should_alter_operational_priority() {
+		let tip = 5;
+		let len = 10;
+
+		ExtBuilder::default().balance_factor(100).build().execute_with(|| {
+			let normal =
+				DispatchInfo { weight: 100, class: DispatchClass::Normal, pays_fee: Pays::Yes };
+			let priority = ChargeTransactionPayment::<Runtime>(tip)
+				.validate(&2, CALL, &normal, len)
+				.unwrap()
+				.priority;
+
+			assert_eq!(priority, 60);
+
+			let priority = ChargeTransactionPayment::<Runtime>(2 * tip)
+				.validate(&2, CALL, &normal, len)
+				.unwrap()
+				.priority;
+
+			assert_eq!(priority, 110);
+		});
+
+		ExtBuilder::default().balance_factor(100).build().execute_with(|| {
+			let op = DispatchInfo {
+				weight: 100,
+				class: DispatchClass::Operational,
+				pays_fee: Pays::Yes,
+			};
+			let priority = ChargeTransactionPayment::<Runtime>(tip)
+				.validate(&2, CALL, &op, len)
+				.unwrap()
+				.priority;
+			assert_eq!(priority, 5810);
+
+			let priority = ChargeTransactionPayment::<Runtime>(2 * tip)
+				.validate(&2, CALL, &op, len)
+				.unwrap()
+				.priority;
+			assert_eq!(priority, 6110);
+		});
+	}
+
+	#[test]
+	fn no_tip_has_some_priority() {
+		let tip = 0;
+		let len = 10;
+
+		ExtBuilder::default().balance_factor(100).build().execute_with(|| {
+			let normal =
+				DispatchInfo { weight: 100, class: DispatchClass::Normal, pays_fee: Pays::Yes };
+			let priority = ChargeTransactionPayment::<Runtime>(tip)
+				.validate(&2, CALL, &normal, len)
+				.unwrap()
+				.priority;
+
+			assert_eq!(priority, 10);
+		});
+
+		ExtBuilder::default().balance_factor(100).build().execute_with(|| {
+			let op = DispatchInfo {
+				weight: 100,
+				class: DispatchClass::Operational,
+				pays_fee: Pays::Yes,
+			};
+			let priority = ChargeTransactionPayment::<Runtime>(tip)
+				.validate(&2, CALL, &op, len)
+				.unwrap()
+				.priority;
+			assert_eq!(priority, 5510);
+		});
+	}
+
+	#[test]
+	fn higher_tip_have_higher_priority() {
+		let get_priorities = |tip: u64| {
+			let mut priority1 = 0;
+			let mut priority2 = 0;
+			let len = 10;
+			ExtBuilder::default().balance_factor(100).build().execute_with(|| {
+				let normal =
+					DispatchInfo { weight: 100, class: DispatchClass::Normal, pays_fee: Pays::Yes };
+				priority1 = ChargeTransactionPayment::<Runtime>(tip)
+					.validate(&2, CALL, &normal, len)
+					.unwrap()
+					.priority;
+			});
+
+			ExtBuilder::default().balance_factor(100).build().execute_with(|| {
+				let op = DispatchInfo {
+					weight: 100,
+					class: DispatchClass::Operational,
+					pays_fee: Pays::Yes,
+				};
+				priority2 = ChargeTransactionPayment::<Runtime>(tip)
+					.validate(&2, CALL, &op, len)
+					.unwrap()
+					.priority;
+			});
+
+			(priority1, priority2)
+		};
+
+		let mut prev_priorities = get_priorities(0);
+
+		for tip in 1..3 {
+			let priorities = get_priorities(tip);
+			assert!(prev_priorities.0 < priorities.0);
+			assert!(prev_priorities.1 < priorities.1);
+			prev_priorities = priorities;
+		}
 	}
 
 	#[test]
@@ -1355,7 +1611,7 @@ mod tests {
 					.unwrap();
 
 				ChargeTransactionPayment::<Runtime>::post_dispatch(
-					pre,
+					Some(pre),
 					&info,
 					&post_info,
 					len,

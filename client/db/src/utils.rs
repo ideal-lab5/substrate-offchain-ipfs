@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2017-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -19,7 +19,7 @@
 //! Db-based backend utility structures and functions, used by both
 //! full and light storages.
 
-use std::{convert::TryInto, fmt, fs, io, path::Path, sync::Arc};
+use std::{fmt, fs, io, path::Path, sync::Arc};
 
 use log::{debug, info};
 
@@ -40,7 +40,7 @@ use sp_trie::DBValue;
 	feature = "test-helpers",
 	test
 ))]
-pub const NUM_COLUMNS: u32 = 12;
+pub const NUM_COLUMNS: u32 = 13;
 /// Meta column. The set of keys in the column is shared by full && light storages.
 pub const COLUMN_META: u32 = 0;
 
@@ -54,10 +54,8 @@ pub mod meta_keys {
 	pub const FINALIZED_BLOCK: &[u8; 5] = b"final";
 	/// Last finalized state key.
 	pub const FINALIZED_STATE: &[u8; 6] = b"fstate";
-	/// Meta information prefix for list-based caches.
-	pub const CACHE_META_PREFIX: &[u8; 5] = b"cache";
-	/// Meta information for changes tries key.
-	pub const CHANGES_TRIES_META: &[u8; 5] = b"ctrie";
+	/// Block gap.
+	pub const BLOCK_GAP: &[u8; 3] = b"gap";
 	/// Genesis block hash.
 	pub const GENESIS_HASH: &[u8; 3] = b"gen";
 	/// Leaves prefix list key.
@@ -81,6 +79,8 @@ pub struct Meta<N, H> {
 	pub genesis_hash: H,
 	/// Finalized state, if any
 	pub finalized_state: Option<(H, N)>,
+	/// Block gap, start and end inclusive, if any.
+	pub block_gap: Option<(N, N)>,
 }
 
 /// A block lookup key: used for canonical lookup from block number to hash
@@ -91,8 +91,6 @@ pub type NumberIndexKey = [u8; 4];
 pub enum DatabaseType {
 	/// Full node database.
 	Full,
-	/// Light node database.
-	Light,
 }
 
 /// Convert block number into short lookup key (LE representation) for
@@ -120,19 +118,6 @@ where
 	Ok(lookup_key)
 }
 
-/// Convert block lookup key into block number.
-/// all block lookup keys start with the block number.
-pub fn lookup_key_to_number<N>(key: &[u8]) -> sp_blockchain::Result<N>
-where
-	N: From<u32>,
-{
-	if key.len() < 4 {
-		return Err(sp_blockchain::Error::Backend("Invalid block key".into()))
-	}
-	Ok((key[0] as u32) << 24 | (key[1] as u32) << 16 | (key[2] as u32) << 8 | (key[3] as u32))
-		.map(Into::into)
-}
-
 /// Delete number to hash mapping in DB transaction.
 pub fn remove_number_to_key_mapping<N: TryInto<u32>>(
 	transaction: &mut Transaction<DbHash>,
@@ -140,18 +125,6 @@ pub fn remove_number_to_key_mapping<N: TryInto<u32>>(
 	number: N,
 ) -> sp_blockchain::Result<()> {
 	transaction.remove(key_lookup_col, number_index_key(number)?.as_ref());
-	Ok(())
-}
-
-/// Remove key mappings.
-pub fn remove_key_mappings<N: TryInto<u32>, H: AsRef<[u8]>>(
-	transaction: &mut Transaction<DbHash>,
-	key_lookup_col: u32,
-	number: N,
-	hash: H,
-) -> sp_blockchain::Result<()> {
-	remove_number_to_key_mapping(transaction, key_lookup_col, number)?;
-	transaction.remove(key_lookup_col, hash.as_ref());
 	Ok(())
 }
 
@@ -279,7 +252,7 @@ impl From<OpenDbError> for sp_blockchain::Error {
 #[cfg(feature = "with-parity-db")]
 impl From<parity_db::Error> for OpenDbError {
 	fn from(err: parity_db::Error) -> Self {
-		if err.to_string().contains("use open_or_create") {
+		if matches!(err, parity_db::Error::DatabaseNotFound) {
 			OpenDbError::DoesNotExist
 		} else {
 			OpenDbError::Internal(err.to_string())
@@ -299,8 +272,15 @@ impl From<io::Error> for OpenDbError {
 
 #[cfg(feature = "with-parity-db")]
 fn open_parity_db<Block: BlockT>(path: &Path, db_type: DatabaseType, create: bool) -> OpenDbResult {
-	let db = crate::parity_db::open(path, db_type, create)?;
-	Ok(db)
+	match crate::parity_db::open(path, db_type, create, false) {
+		Ok(db) => Ok(db),
+		Err(parity_db::Error::InvalidConfiguration(_)) => {
+			log::warn!("Invalid parity db configuration, attempting database metadata update.");
+			// Try to update the database with the new config
+			Ok(crate::parity_db::open(path, db_type, create, true)?)
+		},
+		Err(e) => Err(e.into()),
+	}
 }
 
 #[cfg(not(feature = "with-parity-db"))]
@@ -351,18 +331,6 @@ fn open_kvdb_rocksdb<Block: BlockT>(
 				state_col_budget,
 				NUM_COLUMNS,
 				other_col_budget,
-			);
-		},
-		DatabaseType::Light => {
-			let col_budget = cache_size / (NUM_COLUMNS as usize);
-			for i in 0..NUM_COLUMNS {
-				memory_budget.insert(i, col_budget);
-			}
-			log::trace!(
-				target: "db",
-				"Open RocksDB light database at {:?}, column cache: {} MiB",
-				path,
-				col_budget,
 			);
 		},
 	}
@@ -420,8 +388,7 @@ fn maybe_migrate_to_type_subdir<Block: BlockT>(
 		// See if there's a file identifying a rocksdb or paritydb folder in the parent dir and
 		// the target path ends in a role specific directory
 		if (basedir.join("db_version").exists() || basedir.join("metadata").exists()) &&
-			(p.ends_with(DatabaseType::Full.as_str()) ||
-				p.ends_with(DatabaseType::Light.as_str()))
+			(p.ends_with(DatabaseType::Full.as_str()))
 		{
 			// Try to open the database to check if the current `DatabaseType` matches the type of
 			// database stored in the target directory and close the database on success.
@@ -497,18 +464,6 @@ pub fn read_header<Block: BlockT>(
 	}
 }
 
-/// Required header from the database.
-pub fn require_header<Block: BlockT>(
-	db: &dyn Database<DbHash>,
-	col_index: u32,
-	col: u32,
-	id: BlockId<Block>,
-) -> sp_blockchain::Result<Block::Header> {
-	read_header(db, col_index, col, id).and_then(|header| {
-		header.ok_or_else(|| sp_blockchain::Error::UnknownBlock(format!("Require header: {}", id)))
-	})
-}
-
 /// Read meta from the database.
 pub fn read_meta<Block>(
 	db: &dyn Database<DbHash>,
@@ -527,6 +482,7 @@ where
 				finalized_number: Zero::zero(),
 				genesis_hash: Default::default(),
 				finalized_state: None,
+				block_gap: None,
 			}),
 	};
 
@@ -541,7 +497,7 @@ where
 				"Opened blockchain db, fetched {} = {:?} ({})",
 				desc,
 				hash,
-				header.number()
+				header.number(),
 			);
 			Ok((hash, *header.number()))
 		} else {
@@ -558,6 +514,10 @@ where
 	} else {
 		None
 	};
+	let block_gap = db
+		.get(COLUMN_META, meta_keys::BLOCK_GAP)
+		.and_then(|d| Decode::decode(&mut d.as_slice()).ok());
+	debug!(target: "db", "block_gap={:?}", block_gap);
 
 	Ok(Meta {
 		best_hash,
@@ -566,6 +526,7 @@ where
 		finalized_number,
 		genesis_hash,
 		finalized_state,
+		block_gap,
 	})
 }
 
@@ -588,7 +549,6 @@ impl DatabaseType {
 	pub fn as_str(&self) -> &'static str {
 		match *self {
 			DatabaseType::Full => "full",
-			DatabaseType::Light => "light",
 		}
 	}
 }
@@ -620,7 +580,7 @@ impl<'a, 'b> codec::Input for JoinInput<'a, 'b> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::{KeepBlocks, TransactionStorageMode};
+	use crate::KeepBlocks;
 	use codec::Input;
 	use sc_state_db::PruningMode;
 	use sp_runtime::testing::{Block as RawBlock, ExtrinsicWrapper};
@@ -660,22 +620,11 @@ mod tests {
 		}
 
 		check_dir_for_db_type(
-			DatabaseType::Light,
-			DatabaseSource::RocksDb { path: PathBuf::new(), cache_size: 128 },
-			"db_version",
-		);
-		check_dir_for_db_type(
 			DatabaseType::Full,
 			DatabaseSource::RocksDb { path: PathBuf::new(), cache_size: 128 },
 			"db_version",
 		);
 
-		#[cfg(feature = "with-parity-db")]
-		check_dir_for_db_type(
-			DatabaseType::Light,
-			DatabaseSource::ParityDb { path: PathBuf::new() },
-			"metadata",
-		);
 		#[cfg(feature = "with-parity-db")]
 		check_dir_for_db_type(
 			DatabaseType::Full,
@@ -699,16 +648,8 @@ mod tests {
 				assert!(!old_db_path.join("light/db_version").exists());
 				assert!(!old_db_path.join("full/db_version").exists());
 			}
-			let source = DatabaseSource::RocksDb {
-				path: old_db_path.join(DatabaseType::Light.as_str()),
-				cache_size: 128,
-			};
-			let settings = db_settings(source);
-			let db_res = open_database::<Block>(&settings, DatabaseType::Light);
-			assert!(db_res.is_err(), "Opening a light database in full role should fail");
 			// assert nothing was changed
 			assert!(old_db_path.join("db_version").exists());
-			assert!(!old_db_path.join("light/db_version").exists());
 			assert!(!old_db_path.join("full/db_version").exists());
 		}
 	}
@@ -725,7 +666,6 @@ mod tests {
 	#[test]
 	fn database_type_as_str_works() {
 		assert_eq!(DatabaseType::Full.as_str(), "full");
-		assert_eq!(DatabaseType::Light.as_str(), "light");
 	}
 
 	#[test]
@@ -756,7 +696,6 @@ mod tests {
 			state_pruning: PruningMode::ArchiveAll,
 			source,
 			keep_blocks: KeepBlocks::All,
-			transaction_storage: TransactionStorageMode::BlockBody,
 		}
 	}
 

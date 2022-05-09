@@ -355,7 +355,7 @@ impl From<IpfsNativeResponse> for IpfsResponse {
                 IpfsResponse::FindPeer(addrs)
             },
             IpfsNativeResponse::Identity(pk, addrs) => {
-                let pk = pk.into_peer_id().as_ref().to_bytes();
+                let pk = pk.to_peer_id().as_ref().to_bytes();
                 let addrs = addrs.into_iter().map(|addr|
                     OpaqueMultiaddr(addr.to_string().into_bytes())
                 ).collect();

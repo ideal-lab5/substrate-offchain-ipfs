@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -161,8 +161,8 @@ impl WithdrawReasons {
 }
 
 /// Simple amalgamation trait to collect together properties for an AssetId under one roof.
-pub trait AssetId: FullCodec + Copy + Eq + PartialEq + Debug {}
-impl<T: FullCodec + Copy + Eq + PartialEq + Debug> AssetId for T {}
+pub trait AssetId: FullCodec + Copy + Eq + PartialEq + Debug + scale_info::TypeInfo {}
+impl<T: FullCodec + Copy + Eq + PartialEq + Debug + scale_info::TypeInfo> AssetId for T {}
 
 /// Simple amalgamation trait to collect together properties for a Balance under one roof.
 pub trait Balance:
