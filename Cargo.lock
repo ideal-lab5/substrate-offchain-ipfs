@@ -5204,6 +5204,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-bigint"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f93ab6289c7b344a8a9f60f88d80aa20032336fe78da341afc91c8a2341fc75f"
+dependencies = [
+ "autocfg 1.0.1",
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "num-complex"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5239,7 +5250,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c000134b5dbf44adc5cb772486d335293351644b801551abe8f75c84cfa4aef"
 dependencies = [
  "autocfg 1.0.1",
- "num-bigint",
+ "num-bigint 0.2.6",
  "num-integer",
  "num-traits",
 ]
@@ -5251,6 +5262,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d41702bd167c2df5520b384281bc111a4b5efcf7fbc4c9c222c815b07e0a6a6a"
 dependencies = [
  "autocfg 1.0.1",
+ "num-bigint 0.4.3",
  "num-integer",
  "num-traits",
 ]
@@ -8217,8 +8229,8 @@ dependencies = [
  "futures 0.3.19",
  "log 0.4.14",
  "merlin",
- "num-bigint",
- "num-rational 0.2.4",
+ "num-bigint 0.2.6",
+ "num-rational 0.4.0",
  "num-traits",
  "parity-scale-codec",
  "parking_lot 0.12.0",
@@ -9678,7 +9690,7 @@ name = "sp-arithmetic-fuzzer"
 version = "2.0.0"
 dependencies = [
  "honggfuzz",
- "num-bigint",
+ "num-bigint 0.2.6",
  "primitive-types",
  "sp-arithmetic",
 ]
